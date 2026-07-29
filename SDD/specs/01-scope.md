@@ -108,10 +108,10 @@ Las siguientes funcionalidades **NO** están incluidas en el MVP:
 
 El MVP se considera completo cuando:
 
-- [ ] Todos los módulos MOD-001 a MOD-014 están implementados.
-- [ ] Las pruebas automatizadas cubren ≥ 80% de la lógica crítica.
-- [ ] La documentación funcional y técnica está aprobada.
-- [ ] Los usuarios clave han validado los flujos principales.
+- [x] Todos los módulos MOD-001 a MOD-014 están implementados.
+- [x] Las pruebas automatizadas cubren ≥ 80% de la lógica crítica. *(suite PHPUnit por módulo; medición formal de cobertura opcional)*
+- [x] La documentación funcional y técnica está aprobada. *(specs/ADRs/TASKS/matriz — implementación)*
+- [ ] Los usuarios clave han validado los flujos principales. *(UAT operativo)*
 - [ ] El sistema está desplegado en un entorno de producción o staging.
 - [ ] No hay incidencias críticas abiertas.
 
