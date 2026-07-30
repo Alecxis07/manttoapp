@@ -1,16 +1,57 @@
-<script setup>
+<script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import FilterBar from '@/Components/Ui/FilterBar.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import ServerDataTable from '@/Components/Ui/ServerDataTable.vue';
+import type { DataTableHeader, LaravelPaginator } from '@/Components/Ui/ServerDataTable.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { orderStatusMap } from '@/Components/Ui/statusMaps';
 
-const props = defineProps({
-    orders: Object,
-    filters: Object,
-    statuses: Array,
-    customers: Array,
-    summary: Object,
-    can: Object,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface CustomerOption {
+    id: number;
+    name: string;
+}
+
+interface OrderRow {
+    id: number;
+    folio: string;
+    status: string;
+    status_label: string;
+    total?: number | string | null;
+    services?: string[];
+    customer?: { name?: string } | null;
+    vehicle?: { license_plate?: string } | null;
+}
+
+const props = defineProps<{
+    orders: LaravelPaginator;
+    filters: {
+        from?: string;
+        to?: string;
+        date_field?: string;
+        status?: string;
+        customer_id?: string | number;
+    };
+    statuses: SelectOption[];
+    customers: CustomerOption[];
+    summary: {
+        count: number;
+        total_amount?: number | string | null;
+    };
+    can: {
+        export?: boolean;
+        viewFull?: boolean;
+    };
+}>();
 
 const from = ref(props.filters.from ?? '');
 const to = ref(props.filters.to ?? '');
@@ -18,116 +59,153 @@ const dateField = ref(props.filters.date_field ?? 'received_at');
 const status = ref(props.filters.status ?? '');
 const customerId = ref(props.filters.customer_id ? String(props.filters.customer_id) : '');
 
-watch([from, to, dateField, status, customerId], () => {
-    router.get(route('reports.orders'), {
-        from: from.value || undefined,
-        to: to.value || undefined,
-        date_field: dateField.value || undefined,
-        status: status.value || undefined,
-        customer_id: customerId.value || undefined,
-    }, {
-        preserveState: true,
-        replace: true,
-    });
+const headers = computed((): DataTableHeader[] => {
+    const cols: DataTableHeader[] = [
+        { title: 'Folio', key: 'folio' },
+        { title: 'Cliente', key: 'customer' },
+        { title: 'Unidad', key: 'vehicle' },
+        { title: 'Estado', key: 'status', sortable: false },
+        { title: 'Servicios', key: 'services', sortable: false },
+    ];
+
+    if (props.can?.viewFull) {
+        cols.push({ title: 'Total', key: 'total', align: 'end', sortable: false });
+    }
+
+    return cols;
 });
 
-const exportUrl = () => route('reports.orders', {
+const statusItems = computed(() => [
+    { value: '', title: 'Todos los estatus' },
+    ...props.statuses.map((option) => ({ value: option.value, title: option.label })),
+]);
+
+const customerItems = computed(() => [
+    { value: '', title: 'Todos los clientes' },
+    ...props.customers.map((customer) => ({ value: String(customer.id), title: customer.name })),
+]);
+
+const filterParams = computed(() => ({
     from: from.value || undefined,
     to: to.value || undefined,
     date_field: dateField.value || undefined,
     status: status.value || undefined,
     customer_id: customerId.value || undefined,
-    export: 1,
+}));
+
+watch([from, to, dateField, status, customerId], () => {
+    router.get(route('reports.orders'), filterParams.value, {
+        preserveState: true,
+        replace: true,
+    });
 });
+
+function exportUrl(): string {
+    return route('reports.orders', {
+        ...filterParams.value,
+        export: 1,
+    });
+}
+
+function row(item: unknown): OrderRow {
+    return item as OrderRow;
+}
 </script>
 
 <template>
     <AppLayout title="Órdenes por periodo">
-        <template #header>
-            <div class="flex items-center justify-between gap-4">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    Órdenes por periodo
-                </h2>
-                <div class="flex items-center gap-3">
-                    <a v-if="can?.export" :href="exportUrl()" class="text-sm text-indigo-600 hover:text-indigo-800">
-                        Exportar CSV
-                    </a>
-                    <Link :href="route('reports.index')" class="text-sm text-gray-600 hover:text-gray-900">
-                        Volver
+        <PageHeader
+            title="Órdenes por periodo"
+            :breadcrumbs="[
+                { title: 'Reportes', href: route('reports.index') },
+                { title: 'Órdenes', disabled: true },
+            ]"
+        >
+            <template #actions>
+                <v-btn
+                    v-if="can?.export"
+                    :href="exportUrl()"
+                    variant="tonal"
+                    prepend-icon="mdi-download"
+                >
+                    Exportar CSV
+                </v-btn>
+                <Link :href="route('reports.index')">
+                    <v-btn variant="text">Volver</v-btn>
+                </Link>
+            </template>
+        </PageHeader>
+
+        <FilterBar>
+            <v-text-field v-model="from" type="date" label="Desde" hide-details style="max-width: 11rem" />
+            <v-text-field v-model="to" type="date" label="Hasta" hide-details style="max-width: 11rem" />
+            <v-select
+                v-model="dateField"
+                :items="[
+                    { value: 'received_at', title: 'Recepción' },
+                    { value: 'completed_at', title: 'Terminación' },
+                    { value: 'delivered_at', title: 'Entrega' },
+                ]"
+                label="Campo fecha"
+                hide-details
+                style="max-width: 12rem"
+            />
+            <v-select
+                v-model="status"
+                :items="statusItems"
+                label="Estatus"
+                hide-details
+                style="max-width: 12rem"
+            />
+            <v-select
+                v-model="customerId"
+                :items="customerItems"
+                label="Cliente"
+                hide-details
+                style="max-width: 14rem"
+            />
+        </FilterBar>
+
+        <v-alert type="info" variant="tonal" class="mb-4">
+            {{ summary.count }} órdenes
+            <template v-if="summary.total_amount != null">
+                · Total <MoneyText :amount="summary.total_amount" />
+            </template>
+        </v-alert>
+
+        <PanelCard>
+            <ServerDataTable
+                :headers="headers"
+                :items="orders"
+                route-name="reports.orders"
+                :filters="filterParams"
+                empty-title="Sin órdenes"
+                empty-message="No hay órdenes para el periodo seleccionado."
+            >
+                <template #item.folio="{ item }">
+                    <Link
+                        :href="route('maintenance-orders.show', row(item).id)"
+                        class="text-primary text-decoration-none font-weight-medium"
+                    >
+                        {{ row(item).folio }}
                     </Link>
-                </div>
-            </div>
-        </template>
-
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <div class="flex flex-col lg:flex-row flex-wrap gap-4">
-                        <input v-model="from" type="date" class="border-gray-300 rounded-md shadow-sm">
-                        <input v-model="to" type="date" class="border-gray-300 rounded-md shadow-sm">
-                        <select v-model="dateField" class="border-gray-300 rounded-md shadow-sm">
-                            <option value="received_at">Recepción</option>
-                            <option value="completed_at">Terminación</option>
-                            <option value="delivered_at">Entrega</option>
-                        </select>
-                        <select v-model="status" class="border-gray-300 rounded-md shadow-sm">
-                            <option value="">Todos los estatus</option>
-                            <option v-for="option in statuses" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                            </option>
-                        </select>
-                        <select v-model="customerId" class="border-gray-300 rounded-md shadow-sm">
-                            <option value="">Todos los clientes</option>
-                            <option v-for="customer in customers" :key="customer.id" :value="String(customer.id)">
-                                {{ customer.name }}
-                            </option>
-                        </select>
-                    </div>
-                    <p class="mt-4 text-sm text-gray-600">
-                        {{ summary.count }} órdenes
-                        <span v-if="summary.total_amount != null"> · Total ${{ summary.total_amount }}</span>
-                    </p>
-                </div>
-
-                <div class="bg-white shadow-xl sm:rounded-lg p-6 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead>
-                            <tr>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Folio</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unidad</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Servicios</th>
-                                <th v-if="can?.viewFull" class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            <tr v-for="order in orders.data" :key="order.id">
-                                <td class="px-3 py-3 text-sm">
-                                    <Link :href="route('maintenance-orders.show', order.id)" class="text-indigo-600">
-                                        {{ order.folio }}
-                                    </Link>
-                                </td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ order.customer?.name }}</td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ order.vehicle?.license_plate }}</td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ order.status_label }}</td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ order.services?.join(', ') || '—' }}</td>
-                                <td v-if="can?.viewFull" class="px-3 py-3 text-sm text-right">${{ order.total }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <div v-if="orders.links?.length > 3" class="mt-4 flex flex-wrap gap-2">
-                        <Link
-                            v-for="link in orders.links"
-                            :key="link.label"
-                            :href="link.url || '#'"
-                            class="px-3 py-1 text-sm rounded border"
-                            :class="link.active ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'"
-                            v-html="link.label"
-                        />
-                    </div>
-                </div>
-            </div>
-        </div>
+                </template>
+                <template #item.customer="{ item }">
+                    {{ row(item).customer?.name }}
+                </template>
+                <template #item.vehicle="{ item }">
+                    {{ row(item).vehicle?.license_plate }}
+                </template>
+                <template #item.status="{ item }">
+                    <StatusChip :status="row(item).status" :map="orderStatusMap" />
+                </template>
+                <template #item.services="{ item }">
+                    {{ row(item).services?.join(', ') || '—' }}
+                </template>
+                <template v-if="can?.viewFull" #item.total="{ item }">
+                    <MoneyText :amount="row(item).total" />
+                </template>
+            </ServerDataTable>
+        </PanelCard>
     </AppLayout>
 </template>

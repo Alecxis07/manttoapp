@@ -1,21 +1,43 @@
-<script setup>
-import { useForm, Link } from '@inertiajs/vue3';
+<script setup lang="ts">
 import { watch } from 'vue';
+import { router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import FormSection from '@/Components/FormSection.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+import FormActions from '@/Components/Ui/FormActions.vue';
+import FormSection from '@/Components/Ui/FormSection.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
 
-const props = defineProps({
-    customers: Array,
-    types: Array,
-    technicians: Array,
-    prefill: Object,
-    vehicles: Array,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface CustomerOption {
+    id: number;
+    name: string;
+}
+
+interface VehicleOption {
+    id: number;
+    license_plate: string;
+    brand?: string;
+    model?: string;
+}
+
+interface TechnicianOption {
+    id: number;
+    name: string;
+}
+
+const props = defineProps<{
+    customers: CustomerOption[];
+    types: SelectOption[];
+    technicians: TechnicianOption[];
+    prefill?: {
+        customer_id?: number | string;
+        vehicle_id?: number | string;
+    };
+    vehicles?: VehicleOption[];
+}>();
 
 const form = useForm({
     customer_id: props.prefill?.customer_id ? String(props.prefill.customer_id) : '',
@@ -30,139 +52,134 @@ const form = useForm({
 
 const vehicleOptions = props.vehicles ?? [];
 
-watch(() => form.customer_id, (customerId) => {
-    if (!customerId) {
-        form.vehicle_id = '';
-        return;
-    }
+watch(
+    () => form.customer_id,
+    (customerId) => {
+        if (!customerId) {
+            form.vehicle_id = '';
+            return;
+        }
 
-    window.location = route('maintenance-orders.create', { customer_id: customerId });
-});
+        window.location.href = route('maintenance-orders.create', { customer_id: customerId });
+    },
+);
 
-const submit = () => {
-    form.transform((data) => ({
-        ...data,
-        customer_id: Number(data.customer_id),
-        vehicle_id: Number(data.vehicle_id),
-        mileage: Number(data.mileage),
-        assigned_user_id: data.assigned_user_id ? Number(data.assigned_user_id) : null,
-    })).post(route('maintenance-orders.store'));
-};
+function submit(): void {
+    form
+        .transform((data) => ({
+            ...data,
+            customer_id: Number(data.customer_id),
+            vehicle_id: Number(data.vehicle_id),
+            mileage: Number(data.mileage),
+            assigned_user_id: data.assigned_user_id ? Number(data.assigned_user_id) : null,
+        }))
+        .post(route('maintenance-orders.store'));
+}
+
+const customerItems = props.customers.map((customer) => ({
+    title: customer.name,
+    value: String(customer.id),
+}));
+
+const vehicleItems = vehicleOptions.map((vehicle) => ({
+    title: `${vehicle.license_plate} — ${vehicle.brand ?? ''} ${vehicle.model ?? ''}`.trim(),
+    value: String(vehicle.id),
+}));
+
+const typeItems = props.types.map((option) => ({
+    title: option.label,
+    value: option.value,
+}));
+
+const technicianItems = [
+    { title: 'Sin asignar', value: '' },
+    ...props.technicians.map((user) => ({
+        title: user.name,
+        value: String(user.id),
+    })),
+];
 </script>
 
 <template>
     <AppLayout title="Nueva orden">
-        <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Nueva orden de mantenimiento
-            </h2>
-        </template>
+        <PageHeader
+            title="Nueva orden de mantenimiento"
+            subtitle="Asocia cliente, unidad y motivo. El folio se genera automáticamente."
+        />
 
-        <div>
-            <div class="max-w-7xl mx-auto py-10 sm:px-6 lg:px-8">
-                <FormSection @submitted="submit">
-                    <template #title>
-                        Recepción
-                    </template>
-                    <template #description>
-                        Asocia cliente, unidad y motivo. El folio se genera automáticamente.
-                    </template>
-                    <template #form>
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="customer_id" value="Cliente" />
-                            <select
-                                id="customer_id"
-                                v-model="form.customer_id"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option value="">Seleccione…</option>
-                                <option v-for="customer in customers" :key="customer.id" :value="String(customer.id)">
-                                    {{ customer.name }}
-                                </option>
-                            </select>
-                            <InputError :message="form.errors.customer_id" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="vehicle_id" value="Unidad" />
-                            <select
-                                id="vehicle_id"
-                                v-model="form.vehicle_id"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option value="">Seleccione…</option>
-                                <option v-for="vehicle in vehicleOptions" :key="vehicle.id" :value="String(vehicle.id)">
-                                    {{ vehicle.license_plate }} — {{ vehicle.brand }} {{ vehicle.model }}
-                                </option>
-                            </select>
-                            <InputError :message="form.errors.vehicle_id" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="type" value="Tipo" />
-                            <select
-                                id="type"
-                                v-model="form.type"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option v-for="option in types" :key="option.value" :value="option.value">
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                            <InputError :message="form.errors.type" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="mileage" value="Kilometraje" />
-                            <TextInput id="mileage" v-model="form.mileage" type="number" class="mt-1 block w-full" min="0" />
-                            <InputError :message="form.errors.mileage" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="received_at" value="Fecha de recepción" />
-                            <TextInput id="received_at" v-model="form.received_at" type="datetime-local" class="mt-1 block w-full" />
-                            <InputError :message="form.errors.received_at" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="assigned_user_id" value="Responsable" />
-                            <select
-                                id="assigned_user_id"
-                                v-model="form.assigned_user_id"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option value="">Sin asignar</option>
-                                <option v-for="user in technicians" :key="user.id" :value="String(user.id)">
-                                    {{ user.name }}
-                                </option>
-                            </select>
-                            <InputError :message="form.errors.assigned_user_id" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6">
-                            <InputLabel for="reason" value="Motivo" />
-                            <textarea
-                                id="reason"
-                                v-model="form.reason"
-                                rows="3"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            />
-                            <InputError :message="form.errors.reason" class="mt-2" />
-                        </div>
-                    </template>
-
-                    <template #actions>
-                        <Link :href="route('maintenance-orders.index')">
-                            <SecondaryButton type="button">
-                                Cancelar
-                            </SecondaryButton>
-                        </Link>
-                        <PrimaryButton class="ms-3" :disabled="form.processing">
-                            Crear orden
-                        </PrimaryButton>
-                    </template>
-                </FormSection>
-            </div>
-        </div>
+        <FormSection
+            title="Recepción"
+            description="Datos de ingreso de la unidad al taller."
+            @submitted="submit"
+        >
+            <template #form>
+                <v-row>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.customer_id"
+                            :items="customerItems"
+                            label="Cliente"
+                            :error-messages="form.errors.customer_id"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.vehicle_id"
+                            :items="vehicleItems"
+                            label="Unidad"
+                            :error-messages="form.errors.vehicle_id"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.type"
+                            :items="typeItems"
+                            label="Tipo"
+                            :error-messages="form.errors.type"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field
+                            v-model.number="form.mileage"
+                            type="number"
+                            label="Kilometraje"
+                            min="0"
+                            :error-messages="form.errors.mileage"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field
+                            v-model="form.received_at"
+                            type="datetime-local"
+                            label="Fecha de recepción"
+                            :error-messages="form.errors.received_at"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.assigned_user_id"
+                            :items="technicianItems"
+                            label="Responsable"
+                            :error-messages="form.errors.assigned_user_id"
+                        />
+                    </v-col>
+                    <v-col cols="12">
+                        <v-textarea
+                            v-model="form.reason"
+                            label="Motivo"
+                            rows="3"
+                            :error-messages="form.errors.reason"
+                        />
+                    </v-col>
+                </v-row>
+            </template>
+            <template #actions>
+                <FormActions
+                    :processing="form.processing"
+                    save-text="Crear orden"
+                    @cancel="router.visit(route('maintenance-orders.index'))"
+                />
+            </template>
+        </FormSection>
     </AppLayout>
 </template>

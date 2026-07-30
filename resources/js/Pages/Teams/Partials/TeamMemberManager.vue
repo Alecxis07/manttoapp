@@ -1,383 +1,352 @@
-<script setup>
-import { ref } from 'vue';
-import { router, useForm, usePage } from '@inertiajs/vue3';
-import ActionMessage from '@/Components/ActionMessage.vue';
-import ActionSection from '@/Components/ActionSection.vue';
-import ConfirmationModal from '@/Components/ConfirmationModal.vue';
-import DangerButton from '@/Components/DangerButton.vue';
-import DialogModal from '@/Components/DialogModal.vue';
-import FormSection from '@/Components/FormSection.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
-import SectionBorder from '@/Components/SectionBorder.vue';
-import TextInput from '@/Components/TextInput.vue';
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { router, useForm } from '@inertiajs/vue3';
+import ActionSection from '@/Components/Ui/ActionSection.vue';
+import ConfirmDialog from '@/Components/Ui/ConfirmDialog.vue';
+import FormSection from '@/Components/Ui/FormSection.vue';
+import FormActions from '@/Components/Ui/FormActions.vue';
+import FormDialog from '@/Components/Ui/FormDialog.vue';
+import { useAppPage } from '@/Composables/useAppPage';
 
-const props = defineProps({
-    team: Object,
-    availableRoles: Array,
-    userPermissions: Object,
-});
+interface TeamRole {
+    key: string;
+    name: string;
+    description: string;
+}
 
-const page = usePage();
+interface TeamMember {
+    id: number;
+    name: string;
+    profile_photo_url?: string;
+    membership: {
+        role: string;
+    };
+}
+
+interface TeamInvitation {
+    id: number;
+    email: string;
+}
+
+interface Team {
+    id: number;
+    users: TeamMember[];
+    team_invitations: TeamInvitation[];
+}
+
+const props = defineProps<{
+    team: Team;
+    availableRoles: TeamRole[];
+    userPermissions: {
+        canAddTeamMembers?: boolean;
+        canUpdateTeamMembers?: boolean;
+        canRemoveTeamMembers?: boolean;
+    };
+}>();
+
+const page = useAppPage();
+const authUser = page.props.auth.user!;
 
 const addTeamMemberForm = useForm({
     email: '',
-    role: null,
+    role: null as string | null,
 });
 
 const updateRoleForm = useForm({
-    role: null,
+    role: null as string | null,
 });
 
 const leaveTeamForm = useForm({});
 const removeTeamMemberForm = useForm({});
 
 const currentlyManagingRole = ref(false);
-const managingRoleFor = ref(null);
+const managingRoleFor = ref<TeamMember | null>(null);
 const confirmingLeavingTeam = ref(false);
-const teamMemberBeingRemoved = ref(null);
+const teamMemberBeingRemoved = ref<TeamMember | null>(null);
+const confirmingMemberRemoval = computed({
+    get: () => teamMemberBeingRemoved.value !== null,
+    set: (value: boolean) => {
+        if (!value) {
+            teamMemberBeingRemoved.value = null;
+        }
+    },
+});
 
-const addTeamMember = () => {
+function addTeamMember(): void {
     addTeamMemberForm.post(route('team-members.store', props.team), {
         errorBag: 'addTeamMember',
         preserveScroll: true,
         onSuccess: () => addTeamMemberForm.reset(),
     });
-};
+}
 
-const cancelTeamInvitation = (invitation) => {
+function cancelTeamInvitation(invitation: TeamInvitation): void {
     router.delete(route('team-invitations.destroy', invitation), {
         preserveScroll: true,
     });
-};
+}
 
-const manageRole = (teamMember) => {
+function manageRole(teamMember: TeamMember): void {
     managingRoleFor.value = teamMember;
     updateRoleForm.role = teamMember.membership.role;
     currentlyManagingRole.value = true;
-};
+}
 
-const updateRole = () => {
+function updateRole(): void {
+    if (!managingRoleFor.value) {
+        return;
+    }
+
     updateRoleForm.put(route('team-members.update', [props.team, managingRoleFor.value]), {
         preserveScroll: true,
-        onSuccess: () => currentlyManagingRole.value = false,
+        onSuccess: () => {
+            currentlyManagingRole.value = false;
+        },
     });
-};
+}
 
-const confirmLeavingTeam = () => {
+function confirmLeavingTeam(): void {
     confirmingLeavingTeam.value = true;
-};
+}
 
-const leaveTeam = () => {
-    leaveTeamForm.delete(route('team-members.destroy', [props.team, page.props.auth.user]));
-};
+function leaveTeam(): void {
+    leaveTeamForm.delete(route('team-members.destroy', [props.team, authUser]));
+}
 
-const confirmTeamMemberRemoval = (teamMember) => {
+function confirmTeamMemberRemoval(teamMember: TeamMember): void {
     teamMemberBeingRemoved.value = teamMember;
-};
+}
 
-const removeTeamMember = () => {
-    removeTeamMemberForm.delete(route('team-members.destroy', [props.team, teamMemberBeingRemoved.value]), {
-        errorBag: 'removeTeamMember',
-        preserveScroll: true,
-        preserveState: true,
-        onSuccess: () => teamMemberBeingRemoved.value = null,
-    });
-};
+function removeTeamMember(): void {
+    if (!teamMemberBeingRemoved.value) {
+        return;
+    }
 
-const displayableRole = (role) => {
-    return props.availableRoles.find(r => r.key === role).name;
-};
+    removeTeamMemberForm.delete(
+        route('team-members.destroy', [props.team, teamMemberBeingRemoved.value]),
+        {
+            errorBag: 'removeTeamMember',
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: () => {
+                teamMemberBeingRemoved.value = null;
+            },
+        },
+    );
+}
+
+function displayableRole(role: string): string {
+    return props.availableRoles.find((r) => r.key === role)?.name ?? role;
+}
 </script>
 
 <template>
-    <div>
-        <div v-if="userPermissions.canAddTeamMembers">
-            <SectionBorder />
+    <div class="d-flex flex-column ga-8">
+        <FormSection
+            v-if="userPermissions.canAddTeamMembers"
+            title="Add Team Member"
+            description="Add a new team member to your team, allowing them to collaborate with you."
+            @submitted="addTeamMember"
+        >
+            <template #form>
+                <p class="text-body-2 text-medium-emphasis mb-4">
+                    Please provide the email address of the person you would like to add to this team.
+                </p>
 
-            <!-- Add Team Member -->
-            <FormSection @submitted="addTeamMember">
-                <template #title>
-                    Add Team Member
-                </template>
+                <v-text-field
+                    v-model="addTeamMemberForm.email"
+                    label="Email"
+                    type="email"
+                    class="mb-3"
+                    :error-messages="addTeamMemberForm.errors.email"
+                />
 
-                <template #description>
-                    Add a new team member to your team, allowing them to collaborate with you.
-                </template>
-
-                <template #form>
-                    <div class="col-span-6">
-                        <div class="max-w-xl text-sm text-gray-600">
-                            Please provide the email address of the person you would like to add to this team.
-                        </div>
+                <div v-if="availableRoles.length > 0">
+                    <div class="text-body-2 font-weight-medium mb-2">Role</div>
+                    <div
+                        v-if="addTeamMemberForm.errors.role"
+                        class="text-error text-caption mb-2"
+                    >
+                        {{ addTeamMemberForm.errors.role }}
                     </div>
-
-                    <!-- Member Email -->
-                    <div class="col-span-6 sm:col-span-4">
-                        <InputLabel for="email" value="Email" />
-                        <TextInput
-                            id="email"
-                            v-model="addTeamMemberForm.email"
-                            type="email"
-                            class="mt-1 block w-full"
-                        />
-                        <InputError :message="addTeamMemberForm.errors.email" class="mt-2" />
-                    </div>
-
-                    <!-- Role -->
-                    <div v-if="availableRoles.length > 0" class="col-span-6 lg:col-span-4">
-                        <InputLabel for="roles" value="Role" />
-                        <InputError :message="addTeamMemberForm.errors.role" class="mt-2" />
-
-                        <div class="relative z-0 mt-1 border border-gray-200 rounded-lg cursor-pointer">
-                            <button
-                                v-for="(role, i) in availableRoles"
-                                :key="role.key"
-                                type="button"
-                                class="relative px-4 py-3 inline-flex w-full rounded-lg focus:z-10 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                                :class="{'border-t border-gray-200 focus:border-none rounded-t-none': i > 0, 'rounded-b-none': i != Object.keys(availableRoles).length - 1}"
-                                @click="addTeamMemberForm.role = role.key"
-                            >
-                                <div :class="{'opacity-50': addTeamMemberForm.role && addTeamMemberForm.role != role.key}">
-                                    <!-- Role Name -->
-                                    <div class="flex items-center">
-                                        <div class="text-sm text-gray-600" :class="{'font-semibold': addTeamMemberForm.role == role.key}">
-                                            {{ role.name }}
-                                        </div>
-
-                                        <svg v-if="addTeamMemberForm.role == role.key" class="ms-2 size-5 text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                    </div>
-
-                                    <!-- Role Description -->
-                                    <div class="mt-2 text-xs text-gray-600 text-start">
-                                        {{ role.description }}
-                                    </div>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
-                </template>
-
-                <template #actions>
-                    <ActionMessage :on="addTeamMemberForm.recentlySuccessful" class="me-3">
-                        Added.
-                    </ActionMessage>
-
-                    <PrimaryButton :class="{ 'opacity-25': addTeamMemberForm.processing }" :disabled="addTeamMemberForm.processing">
-                        Add
-                    </PrimaryButton>
-                </template>
-            </FormSection>
-        </div>
-
-        <div v-if="team.team_invitations.length > 0 && userPermissions.canAddTeamMembers">
-            <SectionBorder />
-
-            <!-- Team Member Invitations -->
-            <ActionSection class="mt-10 sm:mt-0">
-                <template #title>
-                    Pending Team Invitations
-                </template>
-
-                <template #description>
-                    These people have been invited to your team and have been sent an invitation email. They may join the team by accepting the email invitation.
-                </template>
-
-                <!-- Pending Team Member Invitation List -->
-                <template #content>
-                    <div class="space-y-6">
-                        <div v-for="invitation in team.team_invitations" :key="invitation.id" class="flex items-center justify-between">
-                            <div class="text-gray-600">
-                                {{ invitation.email }}
-                            </div>
-
-                            <div class="flex items-center">
-                                <!-- Cancel Team Invitation -->
-                                <button
-                                    v-if="userPermissions.canRemoveTeamMembers"
-                                    class="cursor-pointer ms-6 text-sm text-red-500 focus:outline-none"
-                                    @click="cancelTeamInvitation(invitation)"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </template>
-            </ActionSection>
-        </div>
-
-        <div v-if="team.users.length > 0">
-            <SectionBorder />
-
-            <!-- Manage Team Members -->
-            <ActionSection class="mt-10 sm:mt-0">
-                <template #title>
-                    Team Members
-                </template>
-
-                <template #description>
-                    All of the people that are part of this team.
-                </template>
-
-                <!-- Team Member List -->
-                <template #content>
-                    <div class="space-y-6">
-                        <div v-for="user in team.users" :key="user.id" class="flex items-center justify-between">
-                            <div class="flex items-center">
-                                <img class="size-8 rounded-full object-cover" :src="user.profile_photo_url" :alt="user.name">
-                                <div class="ms-4">
-                                    {{ user.name }}
-                                </div>
-                            </div>
-
-                            <div class="flex items-center">
-                                <!-- Manage Team Member Role -->
-                                <button
-                                    v-if="userPermissions.canUpdateTeamMembers && availableRoles.length"
-                                    class="ms-2 text-sm text-gray-400 underline"
-                                    @click="manageRole(user)"
-                                >
-                                    {{ displayableRole(user.membership.role) }}
-                                </button>
-
-                                <div v-else-if="availableRoles.length" class="ms-2 text-sm text-gray-400">
-                                    {{ displayableRole(user.membership.role) }}
-                                </div>
-
-                                <!-- Leave Team -->
-                                <button
-                                    v-if="$page.props.auth.user.id === user.id"
-                                    class="cursor-pointer ms-6 text-sm text-red-500"
-                                    @click="confirmLeavingTeam"
-                                >
-                                    Leave
-                                </button>
-
-                                <!-- Remove Team Member -->
-                                <button
-                                    v-else-if="userPermissions.canRemoveTeamMembers"
-                                    class="cursor-pointer ms-6 text-sm text-red-500"
-                                    @click="confirmTeamMemberRemoval(user)"
-                                >
-                                    Remove
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </template>
-            </ActionSection>
-        </div>
-
-        <!-- Role Management Modal -->
-        <DialogModal :show="currentlyManagingRole" @close="currentlyManagingRole = false">
-            <template #title>
-                Manage Role
-            </template>
-
-            <template #content>
-                <div v-if="managingRoleFor">
-                    <div class="relative z-0 mt-1 border border-gray-200 rounded-lg cursor-pointer">
-                        <button
-                            v-for="(role, i) in availableRoles"
+                    <v-list border rounded="lg" class="bg-transparent">
+                        <v-list-item
+                            v-for="role in availableRoles"
                             :key="role.key"
-                            type="button"
-                            class="relative px-4 py-3 inline-flex w-full rounded-lg focus:z-10 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                            :class="{'border-t border-gray-200 focus:border-none rounded-t-none': i > 0, 'rounded-b-none': i !== Object.keys(availableRoles).length - 1}"
-                            @click="updateRoleForm.role = role.key"
+                            :active="addTeamMemberForm.role === role.key"
+                            color="primary"
+                            @click="addTeamMemberForm.role = role.key"
                         >
-                            <div :class="{'opacity-50': updateRoleForm.role && updateRoleForm.role !== role.key}">
-                                <!-- Role Name -->
-                                <div class="flex items-center">
-                                    <div class="text-sm text-gray-600" :class="{'font-semibold': updateRoleForm.role === role.key}">
-                                        {{ role.name }}
-                                    </div>
-
-                                    <svg v-if="updateRoleForm.role == role.key" class="ms-2 size-5 text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                </div>
-
-                                <!-- Role Description -->
-                                <div class="mt-2 text-xs text-gray-600">
-                                    {{ role.description }}
-                                </div>
-                            </div>
-                        </button>
-                    </div>
+                            <v-list-item-title class="font-weight-medium">
+                                {{ role.name }}
+                            </v-list-item-title>
+                            <v-list-item-subtitle>
+                                {{ role.description }}
+                            </v-list-item-subtitle>
+                            <template #append>
+                                <v-icon
+                                    v-if="addTeamMemberForm.role === role.key"
+                                    icon="mdi-check-circle"
+                                    color="success"
+                                />
+                            </template>
+                        </v-list-item>
+                    </v-list>
                 </div>
             </template>
 
-            <template #footer>
-                <SecondaryButton @click="currentlyManagingRole = false">
-                    Cancel
-                </SecondaryButton>
-
-                <PrimaryButton
-                    class="ms-3"
-                    :class="{ 'opacity-25': updateRoleForm.processing }"
-                    :disabled="updateRoleForm.processing"
-                    @click="updateRole"
+            <template #actions>
+                <FormActions
+                    :processing="addTeamMemberForm.processing"
+                    :show-cancel="false"
+                    save-text="Add"
                 >
-                    Save
-                </PrimaryButton>
+                    <template #prepend>
+                        <v-fade-transition>
+                            <span
+                                v-if="addTeamMemberForm.recentlySuccessful"
+                                class="text-success text-body-2 me-2"
+                            >
+                                Added.
+                            </span>
+                        </v-fade-transition>
+                    </template>
+                </FormActions>
             </template>
-        </DialogModal>
+        </FormSection>
 
-        <!-- Leave Team Confirmation Modal -->
-        <ConfirmationModal :show="confirmingLeavingTeam" @close="confirmingLeavingTeam = false">
-            <template #title>
-                Leave Team
-            </template>
-
+        <ActionSection
+            v-if="team.team_invitations.length > 0 && userPermissions.canAddTeamMembers"
+            title="Pending Team Invitations"
+            description="These people have been invited to your team and have been sent an invitation email. They may join the team by accepting the email invitation."
+        >
             <template #content>
-                Are you sure you would like to leave this team?
+                <v-list class="bg-transparent">
+                    <v-list-item
+                        v-for="invitation in team.team_invitations"
+                        :key="invitation.id"
+                        :title="invitation.email"
+                    >
+                        <template #append>
+                            <v-btn
+                                v-if="userPermissions.canRemoveTeamMembers"
+                                variant="text"
+                                color="error"
+                                size="small"
+                                @click="cancelTeamInvitation(invitation)"
+                            >
+                                Cancel
+                            </v-btn>
+                        </template>
+                    </v-list-item>
+                </v-list>
             </template>
+        </ActionSection>
 
-            <template #footer>
-                <SecondaryButton @click="confirmingLeavingTeam = false">
-                    Cancel
-                </SecondaryButton>
-
-                <DangerButton
-                    class="ms-3"
-                    :class="{ 'opacity-25': leaveTeamForm.processing }"
-                    :disabled="leaveTeamForm.processing"
-                    @click="leaveTeam"
-                >
-                    Leave
-                </DangerButton>
-            </template>
-        </ConfirmationModal>
-
-        <!-- Remove Team Member Confirmation Modal -->
-        <ConfirmationModal :show="teamMemberBeingRemoved" @close="teamMemberBeingRemoved = null">
-            <template #title>
-                Remove Team Member
-            </template>
-
+        <ActionSection
+            v-if="team.users.length > 0"
+            title="Team Members"
+            description="All of the people that are part of this team."
+        >
             <template #content>
-                Are you sure you would like to remove this person from the team?
+                <v-list class="bg-transparent">
+                    <v-list-item
+                        v-for="user in team.users"
+                        :key="user.id"
+                        :title="user.name"
+                        :subtitle="availableRoles.length ? displayableRole(user.membership.role) : undefined"
+                    >
+                        <template #prepend>
+                            <v-avatar size="32" class="me-3">
+                                <v-img :src="user.profile_photo_url" :alt="user.name" />
+                            </v-avatar>
+                        </template>
+                        <template #append>
+                            <div class="d-flex align-center ga-2">
+                                <v-btn
+                                    v-if="userPermissions.canUpdateTeamMembers && availableRoles.length"
+                                    variant="text"
+                                    size="small"
+                                    @click="manageRole(user)"
+                                >
+                                    {{ displayableRole(user.membership.role) }}
+                                </v-btn>
+                                <v-btn
+                                    v-if="authUser.id === user.id"
+                                    variant="text"
+                                    color="error"
+                                    size="small"
+                                    @click="confirmLeavingTeam"
+                                >
+                                    Leave
+                                </v-btn>
+                                <v-btn
+                                    v-else-if="userPermissions.canRemoveTeamMembers"
+                                    variant="text"
+                                    color="error"
+                                    size="small"
+                                    @click="confirmTeamMemberRemoval(user)"
+                                >
+                                    Remove
+                                </v-btn>
+                            </div>
+                        </template>
+                    </v-list-item>
+                </v-list>
             </template>
+        </ActionSection>
 
-            <template #footer>
-                <SecondaryButton @click="teamMemberBeingRemoved = null">
-                    Cancel
-                </SecondaryButton>
-
-                <DangerButton
-                    class="ms-3"
-                    :class="{ 'opacity-25': removeTeamMemberForm.processing }"
-                    :disabled="removeTeamMemberForm.processing"
-                    @click="removeTeamMember"
+        <FormDialog
+            v-model="currentlyManagingRole"
+            title="Manage Role"
+            save-text="Save"
+            :loading="updateRoleForm.processing"
+            @save="updateRole"
+            @cancel="currentlyManagingRole = false"
+        >
+            <v-list v-if="managingRoleFor" border rounded="lg" class="bg-transparent">
+                <v-list-item
+                    v-for="role in availableRoles"
+                    :key="role.key"
+                    :active="updateRoleForm.role === role.key"
+                    color="primary"
+                    @click="updateRoleForm.role = role.key"
                 >
-                    Remove
-                </DangerButton>
-            </template>
-        </ConfirmationModal>
+                    <v-list-item-title class="font-weight-medium">
+                        {{ role.name }}
+                    </v-list-item-title>
+                    <v-list-item-subtitle>
+                        {{ role.description }}
+                    </v-list-item-subtitle>
+                    <template #append>
+                        <v-icon
+                            v-if="updateRoleForm.role === role.key"
+                            icon="mdi-check-circle"
+                            color="success"
+                        />
+                    </template>
+                </v-list-item>
+            </v-list>
+        </FormDialog>
+
+        <ConfirmDialog
+            v-model="confirmingLeavingTeam"
+            title="Leave Team"
+            message="Are you sure you would like to leave this team?"
+            confirm-text="Leave"
+            confirm-color="error"
+            :loading="leaveTeamForm.processing"
+            @confirm="leaveTeam"
+        />
+
+        <ConfirmDialog
+            v-model="confirmingMemberRemoval"
+            title="Remove Team Member"
+            message="Are you sure you would like to remove this person from the team?"
+            confirm-text="Remove"
+            confirm-color="error"
+            :loading="removeTeamMemberForm.processing"
+            @confirm="removeTeamMember"
+        />
     </div>
 </template>

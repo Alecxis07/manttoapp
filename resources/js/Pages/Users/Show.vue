@@ -1,53 +1,58 @@
-<script setup>
+<script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
+import DescriptionList from '@/Components/Ui/DescriptionList.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { userStatusMap } from '@/Components/Ui/statusMaps';
 
-defineProps({
-    user: Object,
-});
+const props = defineProps<{
+    user: {
+        id: number;
+        name: string;
+        email: string;
+        role: string;
+        status: string;
+        status_label: string;
+        created_at: string;
+    };
+}>();
+
+const detailItems = computed(() => [
+    { label: 'Email', value: props.user.email, key: 'email' },
+    { label: 'Rol', value: props.user.role, key: 'role' },
+    { label: 'Estatus', value: props.user.status_label, key: 'status' },
+    { label: 'Creado', value: props.user.created_at, key: 'created' },
+]);
 </script>
 
 <template>
     <AppLayout title="Detalle de usuario">
-        <template #header>
-            <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    {{ user.name }}
-                </h2>
-                <div class="flex gap-2">
-                    <Link :href="route('users.index')">
-                        <SecondaryButton>Volver</SecondaryButton>
-                    </Link>
-                    <Link :href="route('users.edit', user.id)">
-                        <PrimaryButton>Editar</PrimaryButton>
-                    </Link>
-                </div>
-            </div>
-        </template>
+        <PageHeader
+            :title="user.name"
+            :breadcrumbs="[
+                { title: 'Usuarios', href: route('users.index') },
+                { title: user.name, disabled: true },
+            ]"
+        >
+            <template #actions>
+                <Link :href="route('users.index')">
+                    <v-btn variant="text">Volver</v-btn>
+                </Link>
+                <Link :href="route('users.edit', user.id)">
+                    <v-btn color="primary" variant="flat">Editar</v-btn>
+                </Link>
+            </template>
+        </PageHeader>
 
-        <div class="py-12">
-            <div class="max-w-3xl mx-auto sm:px-6 lg:px-8">
-                <div class="bg-white shadow-xl sm:rounded-lg p-6 space-y-4">
-                    <div>
-                        <div class="text-sm text-gray-500">Email</div>
-                        <div class="text-gray-900">{{ user.email }}</div>
-                    </div>
-                    <div>
-                        <div class="text-sm text-gray-500">Rol</div>
-                        <div class="text-gray-900">{{ user.role }}</div>
-                    </div>
-                    <div>
-                        <div class="text-sm text-gray-500">Estatus</div>
-                        <div class="text-gray-900">{{ user.status_label }}</div>
-                    </div>
-                    <div>
-                        <div class="text-sm text-gray-500">Creado</div>
-                        <div class="text-gray-900">{{ user.created_at }}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <PanelCard>
+            <DescriptionList :items="detailItems">
+                <template #status>
+                    <StatusChip :status="user.status" :map="userStatusMap" />
+                </template>
+            </DescriptionList>
+        </PanelCard>
     </AppLayout>
 </template>

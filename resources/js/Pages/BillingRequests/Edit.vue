@@ -1,17 +1,30 @@
-<script setup>
-import { useForm } from '@inertiajs/vue3';
+<script setup lang="ts">
+import { router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+import FormActions from '@/Components/Ui/FormActions.vue';
+import FormSection from '@/Components/Ui/FormSection.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
 
-const props = defineProps({
-    billingRequest: Object,
-    fiscalProfiles: Array,
-    paymentMethods: Array,
-    paymentForms: Array,
-});
+interface SelectOption {
+    value: string | number;
+    label: string;
+}
+
+interface BillingRequestEdit {
+    id: number;
+    folio: string;
+    customer_fiscal_profile_id?: number | null;
+    payment_method_code?: string | null;
+    payment_form_code?: string | null;
+    notes?: string | null;
+}
+
+const props = defineProps<{
+    billingRequest: BillingRequestEdit;
+    fiscalProfiles: SelectOption[];
+    paymentMethods: SelectOption[];
+    paymentForms: SelectOption[];
+}>();
 
 const form = useForm({
     customer_fiscal_profile_id: props.billingRequest.customer_fiscal_profile_id ?? '',
@@ -20,99 +33,90 @@ const form = useForm({
     notes: props.billingRequest.notes ?? '',
 });
 
-const submit = () => {
-    form.transform((data) => ({
-        ...data,
-        customer_fiscal_profile_id: data.customer_fiscal_profile_id || null,
-    })).put(route('billing-requests.update', props.billingRequest.id));
-};
+function submit(): void {
+    form
+        .transform((data) => ({
+            ...data,
+            customer_fiscal_profile_id: data.customer_fiscal_profile_id || null,
+        }))
+        .put(route('billing-requests.update', props.billingRequest.id));
+}
+
+const fiscalItems = [
+    { title: 'Mantener snapshot actual', value: '' },
+    ...props.fiscalProfiles.map((option) => ({
+        title: option.label,
+        value: option.value,
+    })),
+];
+
+const paymentMethodItems = props.paymentMethods.map((option) => ({
+    title: option.label,
+    value: option.value,
+}));
+
+const paymentFormItems = props.paymentForms.map((option) => ({
+    title: option.label,
+    value: option.value,
+}));
 </script>
 
 <template>
     <AppLayout :title="`Editar ${billingRequest.folio}`">
-        <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Editar {{ billingRequest.folio }}
-            </h2>
-        </template>
+        <PageHeader
+            :title="`Editar ${billingRequest.folio}`"
+            subtitle="Actualiza perfil fiscal y datos de pago."
+        />
 
-        <div class="py-12">
-            <div class="max-w-3xl mx-auto sm:px-6 lg:px-8">
-                <form class="bg-white shadow-xl sm:rounded-lg p-6 space-y-6" @submit.prevent="submit">
-                    <div>
-                        <InputLabel value="Perfil fiscal" />
-                        <select
+        <FormSection
+            title="Datos fiscales y pago"
+            description="Al seleccionar un perfil se regenera el snapshot fiscal de la solicitud."
+            @submitted="submit"
+        >
+            <template #form>
+                <v-row>
+                    <v-col cols="12">
+                        <v-select
                             v-model="form.customer_fiscal_profile_id"
-                            class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                        >
-                            <option value="">Mantener snapshot actual</option>
-                            <option
-                                v-for="option in fiscalProfiles"
-                                :key="option.value"
-                                :value="option.value"
-                            >
-                                {{ option.label }}
-                            </option>
-                        </select>
-                        <InputError class="mt-2" :message="form.errors.customer_fiscal_profile_id" />
-                        <p class="mt-2 text-xs text-gray-500">
-                            Al seleccionar un perfil se regenera el snapshot fiscal de la solicitud.
-                        </p>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <InputLabel value="Método de pago (SAT)" />
-                            <select
-                                v-model="form.payment_method_code"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option
-                                    v-for="option in paymentMethods"
-                                    :key="option.value"
-                                    :value="option.value"
-                                >
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                            <InputError class="mt-2" :message="form.errors.payment_method_code" />
-                        </div>
-                        <div>
-                            <InputLabel value="Forma de pago (SAT)" />
-                            <select
-                                v-model="form.payment_form_code"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option
-                                    v-for="option in paymentForms"
-                                    :key="option.value"
-                                    :value="option.value"
-                                >
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                            <InputError class="mt-2" :message="form.errors.payment_form_code" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <InputLabel for="notes" value="Observaciones" />
-                        <TextInput
-                            id="notes"
-                            v-model="form.notes"
-                            type="text"
-                            class="mt-1 block w-full"
+                            :items="fiscalItems"
+                            label="Perfil fiscal"
+                            :error-messages="form.errors.customer_fiscal_profile_id"
+                            hint="Al seleccionar un perfil se regenera el snapshot fiscal de la solicitud."
+                            persistent-hint
                         />
-                        <InputError class="mt-2" :message="form.errors.notes" />
-                    </div>
-
-                    <div class="flex justify-end">
-                        <PrimaryButton :disabled="form.processing">
-                            Guardar
-                        </PrimaryButton>
-                    </div>
-                </form>
-            </div>
-        </div>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.payment_method_code"
+                            :items="paymentMethodItems"
+                            label="Método de pago (SAT)"
+                            :error-messages="form.errors.payment_method_code"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.payment_form_code"
+                            :items="paymentFormItems"
+                            label="Forma de pago (SAT)"
+                            :error-messages="form.errors.payment_form_code"
+                        />
+                    </v-col>
+                    <v-col cols="12">
+                        <v-text-field
+                            v-model="form.notes"
+                            label="Observaciones"
+                            :error-messages="form.errors.notes"
+                        />
+                    </v-col>
+                </v-row>
+            </template>
+            <template #actions>
+                <FormActions
+                    :processing="form.processing"
+                    save-text="Guardar"
+                    @cancel="router.visit(route('billing-requests.show', billingRequest.id))"
+                />
+            </template>
+        </FormSection>
     </AppLayout>
 </template>

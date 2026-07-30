@@ -1,163 +1,200 @@
-<script setup>
+<script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+import ConfirmDialog from '@/Components/Ui/ConfirmDialog.vue';
+import FilterBar from '@/Components/Ui/FilterBar.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import ServerDataTable from '@/Components/Ui/ServerDataTable.vue';
+import type { DataTableHeader, LaravelPaginator } from '@/Components/Ui/ServerDataTable.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { activeFlagMap } from '@/Components/Ui/statusMaps';
 
-const props = defineProps({
-    services: Object,
-    filters: Object,
-    categories: Array,
-});
+interface SelectOption {
+    value: string | number;
+    label: string;
+}
+
+interface ServiceRow {
+    id: number;
+    code: string;
+    description: string;
+    category?: { name?: string } | null;
+    base_price: number | string;
+    is_active: boolean;
+}
+
+const props = defineProps<{
+    services: LaravelPaginator;
+    filters: {
+        search?: string;
+        active?: string;
+        service_category_id?: string | number;
+    };
+    categories: SelectOption[];
+}>();
 
 const search = ref(props.filters.search ?? '');
 const active = ref(props.filters.active ?? '');
-const serviceCategoryId = ref(props.filters.service_category_id ?? '');
+const serviceCategoryId = ref(
+    props.filters.service_category_id != null ? String(props.filters.service_category_id) : '',
+);
+
+const confirmOpen = ref(false);
+const processing = ref(false);
+const pending = ref<ServiceRow | null>(null);
+
+const headers: DataTableHeader[] = [
+    { title: 'Código', key: 'code' },
+    { title: 'Descripción', key: 'description' },
+    { title: 'Categoría', key: 'category' },
+    { title: 'Precio base', key: 'base_price', align: 'end' },
+    { title: 'Estatus', key: 'is_active', sortable: false },
+    { title: 'Acciones', key: 'actions', align: 'end', sortable: false },
+];
+
+const categoryItems = computed(() => [
+    { value: '', title: 'Todas las categorías' },
+    ...props.categories.map((category) => ({
+        value: String(category.value),
+        title: category.label,
+    })),
+]);
+
+const filterParams = computed(() => ({
+    search: search.value || undefined,
+    active: active.value || undefined,
+    service_category_id: serviceCategoryId.value || undefined,
+}));
 
 watch([search, active, serviceCategoryId], () => {
-    router.get(route('service-catalog.index'), {
-        search: search.value || undefined,
-        active: active.value || undefined,
-        service_category_id: serviceCategoryId.value || undefined,
-    }, {
+    router.get(route('service-catalog.index'), filterParams.value, {
         preserveState: true,
         replace: true,
     });
 });
 
-const deactivate = (service) => {
-    if (confirm(`¿Desactivar el servicio ${service.code}?`)) {
-        router.post(route('service-catalog.deactivate', service.id));
+function askDeactivate(service: ServiceRow): void {
+    pending.value = service;
+    confirmOpen.value = true;
+}
+
+function confirmDeactivate(): void {
+    if (!pending.value) {
+        return;
     }
-};
+
+    processing.value = true;
+    router.post(route('service-catalog.deactivate', pending.value.id), {}, {
+        onFinish: () => {
+            processing.value = false;
+            confirmOpen.value = false;
+            pending.value = null;
+        },
+    });
+}
+
+function row(item: unknown): ServiceRow {
+    return item as ServiceRow;
+}
 </script>
 
 <template>
     <AppLayout title="Catálogo de servicios">
-        <template #header>
-            <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    Catálogo de servicios
-                </h2>
+        <PageHeader title="Catálogo de servicios" subtitle="Servicios referenciales del taller.">
+            <template #actions>
                 <Link :href="route('service-catalog.create')">
-                    <PrimaryButton>
+                    <v-btn color="primary" variant="flat" prepend-icon="mdi-plus">
                         Nuevo servicio
-                    </PrimaryButton>
+                    </v-btn>
                 </Link>
-            </div>
-        </template>
+            </template>
+        </PageHeader>
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div
-                    v-if="$page.props.flash?.success"
-                    class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded"
-                >
-                    {{ $page.props.flash.success }}
-                </div>
+        <FilterBar>
+            <v-text-field
+                v-model="search"
+                type="search"
+                label="Buscar"
+                placeholder="Código o descripción"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                hide-details
+                style="max-width: 18rem"
+            />
+            <v-select
+                v-model="active"
+                :items="[
+                    { value: '', title: 'Todos' },
+                    { value: '1', title: 'Activos' },
+                    { value: '0', title: 'Inactivos' },
+                ]"
+                label="Estatus"
+                hide-details
+                style="max-width: 12rem"
+            />
+            <v-select
+                v-model="serviceCategoryId"
+                :items="categoryItems"
+                label="Categoría"
+                hide-details
+                style="max-width: 14rem"
+            />
+        </FilterBar>
 
-                <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <div class="flex flex-col sm:flex-row gap-4 mb-6">
-                        <TextInput
-                            v-model="search"
-                            type="search"
-                            class="w-full sm:w-72"
-                            placeholder="Buscar por código o descripción"
-                        />
-                        <select
-                            v-model="active"
-                            class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
+        <PanelCard>
+            <ServerDataTable
+                :headers="headers"
+                :items="services"
+                route-name="service-catalog.index"
+                :filters="filterParams"
+                empty-title="Sin servicios"
+                empty-message="No hay servicios para mostrar."
+            >
+                <template #item.category="{ item }">
+                    {{ row(item).category?.name ?? '—' }}
+                </template>
+                <template #item.base_price="{ item }">
+                    <MoneyText :amount="row(item).base_price" />
+                </template>
+                <template #item.is_active="{ item }">
+                    <StatusChip
+                        :status="row(item).is_active ? 'active' : 'inactive'"
+                        :map="activeFlagMap"
+                    />
+                </template>
+                <template #item.actions="{ item }">
+                    <div class="d-flex justify-end ga-1">
+                        <Link :href="route('service-catalog.show', row(item).id)">
+                            <v-btn variant="text" size="small" color="primary">Ver</v-btn>
+                        </Link>
+                        <Link :href="route('service-catalog.edit', row(item).id)">
+                            <v-btn variant="text" size="small" color="primary">Editar</v-btn>
+                        </Link>
+                        <v-btn
+                            v-if="row(item).is_active"
+                            variant="text"
+                            size="small"
+                            color="warning"
+                            @click="askDeactivate(row(item))"
                         >
-                            <option value="">Todos</option>
-                            <option value="1">Activos</option>
-                            <option value="0">Inactivos</option>
-                        </select>
-                        <select
-                            v-model="serviceCategoryId"
-                            class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                        >
-                            <option value="">Todas las categorías</option>
-                            <option
-                                v-for="category in categories"
-                                :key="category.value"
-                                :value="category.value"
-                            >
-                                {{ category.label }}
-                            </option>
-                        </select>
+                            Desactivar
+                        </v-btn>
                     </div>
+                </template>
+            </ServerDataTable>
+        </PanelCard>
 
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead>
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Código</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descripción</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio base</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estatus</th>
-                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="service in services.data" :key="service.id">
-                                    <td class="px-4 py-3 text-sm text-gray-900">{{ service.code }}</td>
-                                    <td class="px-4 py-3 text-sm text-gray-600">{{ service.description }}</td>
-                                    <td class="px-4 py-3 text-sm text-gray-600">{{ service.category?.name ?? '—' }}</td>
-                                    <td class="px-4 py-3 text-sm text-gray-600">${{ service.base_price }}</td>
-                                    <td class="px-4 py-3 text-sm">
-                                        <span
-                                            class="inline-flex px-2 py-1 text-xs font-semibold rounded-full"
-                                            :class="service.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'"
-                                        >
-                                            {{ service.is_active ? 'Activo' : 'Inactivo' }}
-                                        </span>
-                                    </td>
-                                    <td class="px-4 py-3 text-sm text-right space-x-2">
-                                        <Link :href="route('service-catalog.show', service.id)" class="text-indigo-600 hover:text-indigo-800">
-                                            Ver
-                                        </Link>
-                                        <Link :href="route('service-catalog.edit', service.id)" class="text-indigo-600 hover:text-indigo-800">
-                                            Editar
-                                        </Link>
-                                        <button
-                                            v-if="service.is_active"
-                                            type="button"
-                                            class="text-amber-600 hover:text-amber-800"
-                                            @click="deactivate(service)"
-                                        >
-                                            Desactivar
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr v-if="services.data.length === 0">
-                                    <td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500">
-                                        No hay servicios para mostrar.
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div v-if="services.links?.length > 3" class="mt-6 flex flex-wrap gap-2">
-                        <template v-for="(link, index) in services.links" :key="index">
-                            <Link
-                                v-if="link.url"
-                                :href="link.url"
-                                class="px-3 py-1 text-sm border rounded"
-                                :class="link.active ? 'bg-gray-800 text-white' : 'bg-white text-gray-700'"
-                                v-html="link.label"
-                            />
-                            <span
-                                v-else
-                                class="px-3 py-1 text-sm border rounded text-gray-400"
-                                v-html="link.label"
-                            />
-                        </template>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <ConfirmDialog
+            v-model="confirmOpen"
+            title="Desactivar servicio"
+            :message="pending ? `¿Desactivar el servicio ${pending.code}?` : undefined"
+            confirm-text="Desactivar"
+            confirm-color="warning"
+            :loading="processing"
+            @confirm="confirmDeactivate"
+        />
     </AppLayout>
 </template>

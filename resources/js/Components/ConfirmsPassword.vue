@@ -1,29 +1,26 @@
-<script setup>
-import { ref, reactive, nextTick } from 'vue';
-import DialogModal from './DialogModal.vue';
-import InputError from './InputError.vue';
-import PrimaryButton from './PrimaryButton.vue';
-import SecondaryButton from './SecondaryButton.vue';
-import TextInput from './TextInput.vue';
+<script setup lang="ts">
+import { nextTick, reactive, ref } from 'vue';
+import axios from 'axios';
 
-const emit = defineEmits(['confirmed']);
+const emit = defineEmits<{
+    confirmed: [];
+}>();
 
-defineProps({
-    title: {
-        type: String,
-        default: 'Confirm Password',
+withDefaults(
+    defineProps<{
+        title?: string;
+        content?: string;
+        button?: string;
+    }>(),
+    {
+        title: 'Confirm Password',
+        content: 'For your security, please confirm your password to continue.',
+        button: 'Confirm',
     },
-    content: {
-        type: String,
-        default: 'For your security, please confirm your password to continue.',
-    },
-    button: {
-        type: String,
-        default: 'Confirm',
-    },
-});
+);
 
 const confirmingPassword = ref(false);
+const passwordInput = ref<HTMLInputElement | null>(null);
 
 const form = reactive({
     password: '',
@@ -31,43 +28,41 @@ const form = reactive({
     processing: false,
 });
 
-const passwordInput = ref(null);
-
-const startConfirmingPassword = () => {
-    axios.get(route('password.confirmation')).then(response => {
+function startConfirmingPassword(): void {
+    axios.get(route('password.confirmation')).then((response) => {
         if (response.data.confirmed) {
             emit('confirmed');
         } else {
             confirmingPassword.value = true;
-
-            setTimeout(() => passwordInput.value.focus(), 250);
+            setTimeout(() => passwordInput.value?.focus(), 250);
         }
     });
-};
+}
 
-const confirmPassword = () => {
+function confirmPassword(): void {
     form.processing = true;
 
-    axios.post(route('password.confirm'), {
-        password: form.password,
-    }).then(() => {
-        form.processing = false;
+    axios
+        .post(route('password.confirm'), {
+            password: form.password,
+        })
+        .then(() => {
+            form.processing = false;
+            closeModal();
+            nextTick().then(() => emit('confirmed'));
+        })
+        .catch((error) => {
+            form.processing = false;
+            form.error = error.response?.data?.errors?.password?.[0] ?? 'Unable to confirm password.';
+            passwordInput.value?.focus();
+        });
+}
 
-        closeModal();
-        nextTick().then(() => emit('confirmed'));
-
-    }).catch(error => {
-        form.processing = false;
-        form.error = error.response.data.errors.password[0];
-        passwordInput.value.focus();
-    });
-};
-
-const closeModal = () => {
+function closeModal(): void {
     confirmingPassword.value = false;
     form.password = '';
     form.error = '';
-};
+}
 </script>
 
 <template>
@@ -76,43 +71,40 @@ const closeModal = () => {
             <slot />
         </span>
 
-        <DialogModal :show="confirmingPassword" @close="closeModal">
-            <template #title>
-                {{ title }}
-            </template>
-
-            <template #content>
-                {{ content }}
-
-                <div class="mt-4">
-                    <TextInput
+        <v-dialog v-model="confirmingPassword" max-width="480" persistent>
+            <v-card>
+                <v-card-title class="text-h6">
+                    {{ title }}
+                </v-card-title>
+                <v-card-text>
+                    <p class="text-body-2 text-medium-emphasis mb-4">
+                        {{ content }}
+                    </p>
+                    <v-text-field
                         ref="passwordInput"
                         v-model="form.password"
                         type="password"
-                        class="mt-1 block w-3/4"
-                        placeholder="Password"
+                        label="Password"
                         autocomplete="current-password"
+                        :error-messages="form.error ? [form.error] : []"
                         @keyup.enter="confirmPassword"
                     />
-
-                    <InputError :message="form.error" class="mt-2" />
-                </div>
-            </template>
-
-            <template #footer>
-                <SecondaryButton @click="closeModal">
-                    Cancel
-                </SecondaryButton>
-
-                <PrimaryButton
-                    class="ms-3"
-                    :class="{ 'opacity-25': form.processing }"
-                    :disabled="form.processing"
-                    @click="confirmPassword"
-                >
-                    {{ button }}
-                </PrimaryButton>
-            </template>
-        </DialogModal>
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" :disabled="form.processing" @click="closeModal">
+                        Cancel
+                    </v-btn>
+                    <v-btn
+                        color="primary"
+                        variant="flat"
+                        :loading="form.processing"
+                        @click="confirmPassword"
+                    >
+                        {{ button }}
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
     </span>
 </template>

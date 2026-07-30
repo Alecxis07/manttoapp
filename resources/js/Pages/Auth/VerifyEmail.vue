@@ -1,62 +1,67 @@
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
-import AuthenticationCard from '@/Components/AuthenticationCard.vue';
-import AuthenticationCardLogo from '@/Components/AuthenticationCardLogo.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
+import { Link, useForm } from '@inertiajs/vue3';
+import GuestLayout from '@/Layouts/GuestLayout.vue';
 
-const props = defineProps({
-    status: String,
-});
+const props = defineProps<{
+    status?: string;
+}>();
 
 const form = useForm({});
 
-const submit = () => {
-    form.post(route('verification.send'));
-};
-
 const verificationLinkSent = computed(() => props.status === 'verification-link-sent');
+
+function submit(): void {
+    form.post(route('verification.send'));
+}
 </script>
 
 <template>
-    <Head title="Email Verification" />
+    <GuestLayout
+        title="Verifica tu correo"
+        subtitle="Revisa tu bandeja para continuar"
+    >
+        <v-alert type="info" variant="tonal" density="comfortable" class="mb-4">
+            Antes de continuar, verifica tu correo con el enlace que te enviamos.
+            Si no lo recibiste, podemos enviarte otro.
+        </v-alert>
 
-    <AuthenticationCard>
-        <template #logo>
-            <AuthenticationCardLogo />
-        </template>
+        <v-alert
+            v-if="verificationLinkSent"
+            type="success"
+            variant="tonal"
+            density="comfortable"
+            class="mb-4"
+        >
+            Se envió un nuevo enlace de verificación a tu correo.
+        </v-alert>
 
-        <div class="mb-4 text-sm text-gray-600">
-            Before continuing, could you verify your email address by clicking on the link we just emailed to you? If you didn't receive the email, we will gladly send you another.
-        </div>
+        <v-form @submit.prevent="submit">
+            <v-btn
+                type="submit"
+                color="primary"
+                variant="flat"
+                block
+                size="large"
+                class="mb-4"
+                :loading="form.processing"
+            >
+                Reenviar correo de verificación
+            </v-btn>
 
-        <div v-if="verificationLinkSent" class="mb-4 font-medium text-sm text-green-600">
-            A new verification link has been sent to the email address you provided in your profile settings.
-        </div>
-
-        <form @submit.prevent="submit">
-            <div class="mt-4 flex items-center justify-between">
-                <PrimaryButton :class="{ 'opacity-25': form.processing }" :disabled="form.processing">
-                    Resend Verification Email
-                </PrimaryButton>
-
-                <div>
-                    <Link
-                        :href="route('profile.show')"
-                        class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                    >
-                        Edit Profile</Link>
-
-                    <Link
-                        :href="route('logout')"
-                        method="post"
-                        as="button"
-                        class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ms-2"
-                    >
-                        Log Out
-                    </Link>
-                </div>
+            <div class="d-flex justify-center flex-wrap ga-3">
+                <Link :href="route('profile.show')" class="text-body-2 text-decoration-none">
+                    Editar perfil
+                </Link>
+                <Link
+                    :href="route('logout')"
+                    method="post"
+                    as="button"
+                    class="text-body-2 text-decoration-none bg-transparent border-0 cursor-pointer"
+                >
+                    Cerrar sesión
+                </Link>
             </div>
-        </form>
-    </AuthenticationCard>
+        </v-form>
+    </GuestLayout>
 </template>

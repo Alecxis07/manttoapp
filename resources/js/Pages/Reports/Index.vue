@@ -1,52 +1,62 @@
-<script setup>
+<script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
 
-defineProps({
-    can: Object,
-});
+defineProps<{
+    can?: Record<string, boolean>;
+}>();
+
+const reports = [
+    {
+        title: 'Historial por unidad',
+        description: 'Órdenes, servicios y refacciones de una unidad en un periodo.',
+        href: 'reports.vehicle-history',
+        icon: 'mdi-truck-outline',
+    },
+    {
+        title: 'Órdenes por periodo',
+        description: 'Filtra por fechas de recepción, entrega o terminación.',
+        href: 'reports.orders',
+        icon: 'mdi-wrench-outline',
+    },
+    {
+        title: 'Cotizaciones por estado',
+        description: 'Emisiones, estados y tasa de conversión a orden.',
+        href: 'reports.quotations',
+        icon: 'mdi-file-document-outline',
+    },
+] as const;
 </script>
 
 <template>
     <AppLayout title="Reportes">
-        <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Reportes
-            </h2>
-        </template>
+        <PageHeader
+            title="Reportes"
+            subtitle="Consultas operativas y exportación."
+        />
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Link
-                        :href="route('reports.vehicle-history')"
-                        class="bg-white shadow-xl sm:rounded-lg p-6 hover:ring-2 hover:ring-indigo-200 transition"
-                    >
-                        <h3 class="text-lg font-medium text-gray-900">Historial por unidad</h3>
-                        <p class="mt-2 text-sm text-gray-500">
-                            Órdenes, servicios y refacciones de una unidad en un periodo.
+        <v-row>
+            <v-col
+                v-for="report in reports"
+                :key="report.href"
+                cols="12"
+                md="4"
+            >
+                <Link :href="route(report.href)" class="text-decoration-none">
+                    <PanelCard :title="report.title">
+                        <template #actions>
+                            <v-avatar color="primary" variant="tonal" size="40" rounded="lg">
+                                <v-icon :icon="report.icon" />
+                            </v-avatar>
+                        </template>
+                        <p class="text-body-2 text-medium-emphasis mb-0">
+                            {{ report.description }}
                         </p>
-                    </Link>
-                    <Link
-                        :href="route('reports.orders')"
-                        class="bg-white shadow-xl sm:rounded-lg p-6 hover:ring-2 hover:ring-indigo-200 transition"
-                    >
-                        <h3 class="text-lg font-medium text-gray-900">Órdenes por periodo</h3>
-                        <p class="mt-2 text-sm text-gray-500">
-                            Filtra por fechas de recepción, entrega o terminación.
-                        </p>
-                    </Link>
-                    <Link
-                        :href="route('reports.quotations')"
-                        class="bg-white shadow-xl sm:rounded-lg p-6 hover:ring-2 hover:ring-indigo-200 transition"
-                    >
-                        <h3 class="text-lg font-medium text-gray-900">Cotizaciones por estado</h3>
-                        <p class="mt-2 text-sm text-gray-500">
-                            Emisiones, estados y tasa de conversión a orden.
-                        </p>
-                    </Link>
-                </div>
-            </div>
-        </div>
+                    </PanelCard>
+                </Link>
+            </v-col>
+        </v-row>
     </AppLayout>
 </template>

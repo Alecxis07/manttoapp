@@ -1,4 +1,5 @@
 import { onMounted, ref, type Ref } from 'vue';
+import { useTheme } from 'vuetify';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -29,11 +30,11 @@ export function resolveInitialTheme(): ThemeMode {
     return readStoredPreference() ?? (systemPrefersDark() ? 'dark' : 'light');
 }
 
-export function applyTheme(mode: ThemeMode): void {
-    const dark = mode === 'dark';
-    isDark.value = dark;
-    document.documentElement.classList.toggle('dark', dark);
+function syncDocumentClass(mode: ThemeMode): void {
+    document.documentElement.classList.toggle('dark', mode === 'dark');
+}
 
+function persistTheme(mode: ThemeMode): void {
     try {
         localStorage.setItem(STORAGE_KEY, mode);
     } catch {
@@ -41,22 +42,38 @@ export function applyTheme(mode: ThemeMode): void {
     }
 }
 
+/**
+ * Apply theme to document + storage. Optionally sync Vuetify when a theme instance is provided.
+ */
+export function applyTheme(mode: ThemeMode, theme?: { global: { name: { value: string } } }): void {
+    isDark.value = mode === 'dark';
+    syncDocumentClass(mode);
+    persistTheme(mode);
+
+    if (theme) {
+        theme.global.name.value = mode;
+    }
+}
+
 export function useDarkMode() {
+    const theme = useTheme();
+
     onMounted(() => {
-        if (! initialized) {
-            applyTheme(resolveInitialTheme());
+        if (!initialized) {
+            applyTheme(resolveInitialTheme(), theme);
             initialized = true;
         } else {
             isDark.value = document.documentElement.classList.contains('dark');
+            theme.global.name.value = isDark.value ? 'dark' : 'light';
         }
     });
 
     const toggle = (): void => {
-        applyTheme(isDark.value ? 'light' : 'dark');
+        applyTheme(isDark.value ? 'light' : 'dark', theme);
     };
 
     const setTheme = (mode: ThemeMode): void => {
-        applyTheme(mode);
+        applyTheme(mode, theme);
     };
 
     return {

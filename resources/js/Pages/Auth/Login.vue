@@ -1,17 +1,11 @@
-<script setup>
-import { Head, Link, useForm } from '@inertiajs/vue3';
-import AuthenticationCard from '@/Components/AuthenticationCard.vue';
-import AuthenticationCardLogo from '@/Components/AuthenticationCardLogo.vue';
-import Checkbox from '@/Components/Checkbox.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+<script setup lang="ts">
+import { Link, useForm } from '@inertiajs/vue3';
+import GuestLayout from '@/Layouts/GuestLayout.vue';
 
-defineProps({
-    canResetPassword: Boolean,
-    status: String,
-});
+defineProps<{
+    canResetPassword?: boolean;
+    status?: string;
+}>();
 
 const form = useForm({
     email: '',
@@ -19,72 +13,77 @@ const form = useForm({
     remember: false,
 });
 
-const submit = () => {
-    form.transform(data => ({
+function submit(): void {
+    form.transform((data) => ({
         ...data,
         remember: form.remember ? 'on' : '',
     })).post(route('login'), {
         onFinish: () => form.reset('password'),
     });
-};
+}
 </script>
 
 <template>
-    <Head title="Log in" />
-
-    <AuthenticationCard>
-        <template #logo>
-            <AuthenticationCardLogo />
-        </template>
-
-        <div v-if="status" class="mb-4 font-medium text-sm text-green-600">
+    <GuestLayout title="Iniciar sesión" subtitle="Accede a tu taller Mantto">
+        <v-alert
+            v-if="status"
+            type="success"
+            variant="tonal"
+            density="comfortable"
+            class="mb-4"
+        >
             {{ status }}
-        </div>
+        </v-alert>
 
-        <form @submit.prevent="submit">
-            <div>
-                <InputLabel for="email" value="Email" />
-                <TextInput
-                    id="email"
-                    v-model="form.email"
-                    type="email"
-                    class="mt-1 block w-full"
-                    required
-                    autofocus
-                    autocomplete="username"
+        <v-form @submit.prevent="submit">
+            <v-text-field
+                v-model="form.email"
+                label="Correo electrónico"
+                type="email"
+                autocomplete="username"
+                autofocus
+                required
+                class="mb-3"
+                :error-messages="form.errors.email"
+            />
+
+            <v-text-field
+                v-model="form.password"
+                label="Contraseña"
+                type="password"
+                autocomplete="current-password"
+                required
+                class="mb-2"
+                :error-messages="form.errors.password"
+            />
+
+            <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-4">
+                <v-checkbox
+                    v-model="form.remember"
+                    label="Recordarme"
+                    density="compact"
+                    hide-details
+                    color="primary"
                 />
-                <InputError class="mt-2" :message="form.errors.email" />
-            </div>
-
-            <div class="mt-4">
-                <InputLabel for="password" value="Password" />
-                <TextInput
-                    id="password"
-                    v-model="form.password"
-                    type="password"
-                    class="mt-1 block w-full"
-                    required
-                    autocomplete="current-password"
-                />
-                <InputError class="mt-2" :message="form.errors.password" />
-            </div>
-
-            <div class="block mt-4">
-                <label class="flex items-center">
-                    <Checkbox v-model:checked="form.remember" name="remember" />
-                    <span class="ms-2 text-sm text-gray-600">Remember me</span>
-                </label>
-            </div>
-
-            <div class="flex items-center justify-end mt-4">
-                <Link v-if="canResetPassword" :href="route('password.request')" class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                    Forgot your password?
+                <Link
+                    v-if="canResetPassword"
+                    :href="route('password.request')"
+                    class="text-body-2 text-decoration-none"
+                >
+                    ¿Olvidaste tu contraseña?
                 </Link>
-
-                <PrimaryButton class="ms-4" :class="{ 'opacity-25': form.processing }" :disabled="form.processing">
-                    Log in
-                </PrimaryButton>
             </div>
-        </form>
-    </AuthenticationCard>
+
+            <v-btn
+                type="submit"
+                color="primary"
+                variant="flat"
+                block
+                size="large"
+                :loading="form.processing"
+            >
+                Entrar
+            </v-btn>
+        </v-form>
+    </GuestLayout>
 </template>

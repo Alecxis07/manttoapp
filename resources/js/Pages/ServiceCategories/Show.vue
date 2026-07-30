@@ -1,69 +1,101 @@
-<script setup>
+<script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
+import ConfirmDialog from '@/Components/Ui/ConfirmDialog.vue';
+import DescriptionList from '@/Components/Ui/DescriptionList.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { activeFlagFeminineMap } from '@/Components/Ui/statusMaps';
 
-const props = defineProps({
-    category: Object,
-});
+const props = defineProps<{
+    category: {
+        id: number;
+        code: string;
+        name: string;
+        description?: string | null;
+        is_active: boolean;
+        services_count: number;
+        parts_count: number;
+        in_use?: boolean;
+    };
+}>();
 
-const deactivate = () => {
-    if (confirm(`¿Desactivar la categoría ${props.category.name}?`)) {
-        router.post(route('service-categories.deactivate', props.category.id));
-    }
-};
+const confirmOpen = ref(false);
+const processing = ref(false);
+
+const detailItems = computed(() => [
+    { label: 'Código', value: props.category.code, key: 'code' },
+    { label: 'Estatus', value: props.category.is_active ? 'Activa' : 'Inactiva', key: 'status' },
+    { label: 'Descripción', value: props.category.description || '—', key: 'description' },
+    { label: 'Servicios asociados', value: props.category.services_count, key: 'services' },
+    { label: 'Refacciones asociadas', value: props.category.parts_count, key: 'parts' },
+    {
+        label: 'En uso (RN-CAT-001)',
+        value: props.category.in_use ? 'Sí — solo desactivable' : 'No',
+        key: 'in_use',
+    },
+]);
+
+function askDeactivate(): void {
+    confirmOpen.value = true;
+}
+
+function confirmDeactivate(): void {
+    processing.value = true;
+    router.post(route('service-categories.deactivate', props.category.id), {}, {
+        onFinish: () => {
+            processing.value = false;
+            confirmOpen.value = false;
+        },
+    });
+}
 </script>
 
 <template>
     <AppLayout title="Categoría">
-        <template #header>
-            <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    {{ category.name }}
-                </h2>
-                <div class="flex gap-2">
-                    <Link :href="route('service-categories.edit', category.id)">
-                        <PrimaryButton>Editar</PrimaryButton>
-                    </Link>
-                    <SecondaryButton v-if="category.is_active" @click="deactivate">
-                        Desactivar
-                    </SecondaryButton>
-                </div>
-            </div>
-        </template>
+        <PageHeader
+            :title="category.name"
+            :breadcrumbs="[
+                { title: 'Categorías', href: route('service-categories.index') },
+                { title: category.name, disabled: true },
+            ]"
+        >
+            <template #actions>
+                <Link :href="route('service-categories.edit', category.id)">
+                    <v-btn color="primary" variant="flat">Editar</v-btn>
+                </Link>
+                <v-btn
+                    v-if="category.is_active"
+                    variant="tonal"
+                    color="warning"
+                    @click="askDeactivate"
+                >
+                    Desactivar
+                </v-btn>
+            </template>
+        </PageHeader>
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-                <div class="bg-white shadow-xl sm:rounded-lg p-6 space-y-4">
-                    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <dt class="text-sm text-gray-500">Código</dt>
-                            <dd class="text-sm text-gray-900">{{ category.code }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Estatus</dt>
-                            <dd class="text-sm text-gray-900">{{ category.is_active ? 'Activa' : 'Inactiva' }}</dd>
-                        </div>
-                        <div class="sm:col-span-2">
-                            <dt class="text-sm text-gray-500">Descripción</dt>
-                            <dd class="text-sm text-gray-900">{{ category.description || '—' }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Servicios asociados</dt>
-                            <dd class="text-sm text-gray-900">{{ category.services_count }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Refacciones asociadas</dt>
-                            <dd class="text-sm text-gray-900">{{ category.parts_count }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">En uso (RN-CAT-001)</dt>
-                            <dd class="text-sm text-gray-900">{{ category.in_use ? 'Sí — solo desactivable' : 'No' }}</dd>
-                        </div>
-                    </dl>
-                </div>
-            </div>
-        </div>
+        <PanelCard>
+            <DescriptionList :items="detailItems" :columns="2">
+                <template #status>
+                    <StatusChip
+                        :status="category.is_active ? 'active' : 'inactive'"
+                        :map="activeFlagFeminineMap"
+                    />
+                </template>
+            </DescriptionList>
+        </PanelCard>
+
+        <ConfirmDialog
+            v-model="confirmOpen"
+            title="Desactivar categoría"
+            :message="`¿Desactivar la categoría ${category.name}?`"
+            confirm-text="Desactivar"
+            confirm-color="warning"
+            :loading="processing"
+            @confirm="confirmDeactivate"
+        />
     </AppLayout>
 </template>

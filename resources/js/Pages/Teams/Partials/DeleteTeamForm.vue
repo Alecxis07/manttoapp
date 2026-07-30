@@ -1,75 +1,50 @@
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue';
 import { useForm } from '@inertiajs/vue3';
-import ActionSection from '@/Components/ActionSection.vue';
-import ConfirmationModal from '@/Components/ConfirmationModal.vue';
-import DangerButton from '@/Components/DangerButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
+import ActionSection from '@/Components/Ui/ActionSection.vue';
+import ConfirmDialog from '@/Components/Ui/ConfirmDialog.vue';
 
-const props = defineProps({
-    team: Object,
-});
+const props = defineProps<{
+    team: { id: number; name?: string };
+}>();
 
 const confirmingTeamDeletion = ref(false);
 const form = useForm({});
 
-const confirmTeamDeletion = () => {
+function confirmTeamDeletion(): void {
     confirmingTeamDeletion.value = true;
-};
+}
 
-const deleteTeam = () => {
+function deleteTeam(): void {
     form.delete(route('teams.destroy', props.team), {
         errorBag: 'deleteTeam',
     });
-};
+}
 </script>
 
 <template>
-    <ActionSection>
-        <template #title>
-            Delete Team
-        </template>
-
-        <template #description>
-            Permanently delete this team.
-        </template>
-
+    <ActionSection
+        title="Delete Team"
+        description="Permanently delete this team."
+    >
         <template #content>
-            <div class="max-w-xl text-sm text-gray-600">
+            <p class="text-body-2 text-medium-emphasis mb-4">
                 Once a team is deleted, all of its resources and data will be permanently deleted. Before deleting this team, please download any data or information regarding this team that you wish to retain.
-            </div>
+            </p>
 
-            <div class="mt-5">
-                <DangerButton @click="confirmTeamDeletion">
-                    Delete Team
-                </DangerButton>
-            </div>
+            <v-btn color="error" variant="flat" @click="confirmTeamDeletion">
+                Delete Team
+            </v-btn>
 
-            <!-- Delete Team Confirmation Modal -->
-            <ConfirmationModal :show="confirmingTeamDeletion" @close="confirmingTeamDeletion = false">
-                <template #title>
-                    Delete Team
-                </template>
-
-                <template #content>
-                    Are you sure you want to delete this team? Once a team is deleted, all of its resources and data will be permanently deleted.
-                </template>
-
-                <template #footer>
-                    <SecondaryButton @click="confirmingTeamDeletion = false">
-                        Cancel
-                    </SecondaryButton>
-
-                    <DangerButton
-                        class="ms-3"
-                        :class="{ 'opacity-25': form.processing }"
-                        :disabled="form.processing"
-                        @click="deleteTeam"
-                    >
-                        Delete Team
-                    </DangerButton>
-                </template>
-            </ConfirmationModal>
+            <ConfirmDialog
+                v-model="confirmingTeamDeletion"
+                title="Delete Team"
+                message="Are you sure you want to delete this team? Once a team is deleted, all of its resources and data will be permanently deleted."
+                confirm-text="Delete Team"
+                confirm-color="error"
+                :loading="form.processing"
+                @confirm="deleteTeam"
+            />
         </template>
     </ActionSection>
 </template>

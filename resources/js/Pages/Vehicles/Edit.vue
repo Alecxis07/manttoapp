@@ -1,22 +1,51 @@
-<script setup>
-import { Link, useForm } from '@inertiajs/vue3';
+<script setup lang="ts">
+import { router, useForm } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import FormSection from '@/Components/FormSection.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+import FormActions from '@/Components/Ui/FormActions.vue';
+import FormSection from '@/Components/Ui/FormSection.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
 
-const props = defineProps({
-    customer: Object,
-    vehicle: Object,
-    customers: Array,
-    vehicleTypes: Array,
-    statuses: Array,
-    yearRange: Object,
-    attachments: Array,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface NamedOption {
+    id: number;
+    name: string;
+}
+
+interface VehicleProp {
+    id: number;
+    customer_id: number;
+    vehicle_type_id: number;
+    license_plate: string;
+    vin?: string | null;
+    economic_number?: string | null;
+    brand: string;
+    model: string;
+    year: number;
+    engine_type?: string | null;
+    current_mileage: number;
+    status: string;
+    status_notes?: string | null;
+}
+
+interface Attachment {
+    id: number;
+    original_name: string;
+}
+
+const props = defineProps<{
+    customer: NamedOption;
+    vehicle: VehicleProp;
+    customers: NamedOption[];
+    vehicleTypes: NamedOption[];
+    statuses: SelectOption[];
+    yearRange?: { min?: number; max?: number } | null;
+    attachments: Attachment[];
+}>();
 
 const form = useForm({
     customer_id: props.vehicle.customer_id,
@@ -31,201 +60,189 @@ const form = useForm({
     current_mileage: props.vehicle.current_mileage,
     status: props.vehicle.status,
     status_notes: props.vehicle.status_notes ?? '',
-    attachments: [],
+    attachments: [] as File[],
     _method: 'put',
 });
 
-const onFilesChange = (event) => {
-    form.attachments = Array.from(event.target.files || []);
-};
+const customerItems = computed(() =>
+    props.customers.map((option) => ({ value: option.id, title: option.name })),
+);
 
-const submit = () => {
+const typeItems = computed(() =>
+    props.vehicleTypes.map((type) => ({ value: type.id, title: type.name })),
+);
+
+const statusItems = computed(() =>
+    props.statuses.map((option) => ({ value: option.value, title: option.label })),
+);
+
+function onFilesChange(files: File[] | File | null): void {
+    if (!files) {
+        form.attachments = [];
+        return;
+    }
+
+    form.attachments = Array.isArray(files) ? files : [files];
+}
+
+function submit(): void {
     form.post(route('customers.vehicles.update', [props.customer.id, props.vehicle.id]), {
         forceFormData: true,
     });
-};
+}
 </script>
 
 <template>
     <AppLayout title="Editar unidad">
-        <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Editar {{ vehicle.license_plate }}
-            </h2>
-        </template>
+        <PageHeader
+            :title="`Editar ${vehicle.license_plate}`"
+            subtitle="El kilometraje no puede disminuir. Los cambios de estatus quedan auditados."
+            :breadcrumbs="[
+                { title: 'Unidades', href: route('vehicles.index') },
+                {
+                    title: vehicle.license_plate,
+                    href: route('customers.vehicles.show', [customer.id, vehicle.id]),
+                },
+                { title: 'Editar', disabled: true },
+            ]"
+        />
 
-        <div>
-            <div class="max-w-7xl mx-auto py-10 sm:px-6 lg:px-8 space-y-6">
-                <FormSection @submitted="submit">
-                    <template #title>
-                        Datos de la unidad
-                    </template>
-                    <template #description>
-                        El kilometraje no puede disminuir. Los cambios de estatus quedan auditados.
-                    </template>
-
-                    <template #form>
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="customer_id" value="Cliente" />
-                            <select
-                                id="customer_id"
-                                v-model="form.customer_id"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option
-                                    v-for="option in customers"
-                                    :key="option.id"
-                                    :value="option.id"
-                                >
-                                    {{ option.name }}
-                                </option>
-                            </select>
-                            <InputError class="mt-2" :message="form.errors.customer_id" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="vehicle_type_id" value="Tipo de unidad" />
-                            <select
-                                id="vehicle_type_id"
-                                v-model="form.vehicle_type_id"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option
-                                    v-for="type in vehicleTypes"
-                                    :key="type.id"
-                                    :value="type.id"
-                                >
-                                    {{ type.name }}
-                                </option>
-                            </select>
-                            <InputError class="mt-2" :message="form.errors.vehicle_type_id" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="license_plate" value="Placas" />
-                            <TextInput id="license_plate" v-model="form.license_plate" type="text" class="mt-1 block w-full" required />
-                            <InputError class="mt-2" :message="form.errors.license_plate" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="vin" value="VIN" />
-                            <TextInput id="vin" v-model="form.vin" type="text" class="mt-1 block w-full" />
-                            <InputError class="mt-2" :message="form.errors.vin" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="economic_number" value="Número económico" />
-                            <TextInput id="economic_number" v-model="form.economic_number" type="text" class="mt-1 block w-full" />
-                            <InputError class="mt-2" :message="form.errors.economic_number" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="brand" value="Marca" />
-                            <TextInput id="brand" v-model="form.brand" type="text" class="mt-1 block w-full" required />
-                            <InputError class="mt-2" :message="form.errors.brand" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="model" value="Modelo" />
-                            <TextInput id="model" v-model="form.model" type="text" class="mt-1 block w-full" required />
-                            <InputError class="mt-2" :message="form.errors.model" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-2">
-                            <InputLabel for="year" value="Año" />
-                            <TextInput
-                                id="year"
-                                v-model="form.year"
-                                type="number"
-                                class="mt-1 block w-full"
-                                :min="yearRange?.min"
-                                :max="yearRange?.max"
-                                required
+        <FormSection
+            title="Datos de la unidad"
+            description="Actualiza identificación, kilometraje y estatus."
+            @submitted="submit"
+        >
+            <template #form>
+                <v-row>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.customer_id"
+                            :items="customerItems"
+                            label="Cliente"
+                            :error-messages="form.errors.customer_id"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.vehicle_type_id"
+                            :items="typeItems"
+                            label="Tipo de unidad"
+                            :error-messages="form.errors.vehicle_type_id"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field
+                            v-model="form.license_plate"
+                            label="Placas"
+                            required
+                            :error-messages="form.errors.license_plate"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field
+                            v-model="form.vin"
+                            label="VIN"
+                            :error-messages="form.errors.vin"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field
+                            v-model="form.economic_number"
+                            label="Número económico"
+                            :error-messages="form.errors.economic_number"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field
+                            v-model="form.brand"
+                            label="Marca"
+                            required
+                            :error-messages="form.errors.brand"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field
+                            v-model="form.model"
+                            label="Modelo"
+                            required
+                            :error-messages="form.errors.model"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="3">
+                        <v-text-field
+                            v-model.number="form.year"
+                            type="number"
+                            label="Año"
+                            :min="yearRange?.min"
+                            :max="yearRange?.max"
+                            required
+                            :error-messages="form.errors.year"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="3">
+                        <v-text-field
+                            v-model.number="form.current_mileage"
+                            type="number"
+                            label="Kilometraje"
+                            :min="vehicle.current_mileage"
+                            required
+                            :error-messages="form.errors.current_mileage"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field
+                            v-model="form.engine_type"
+                            label="Tipo de motor"
+                            :error-messages="form.errors.engine_type"
+                        />
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-select
+                            v-model="form.status"
+                            :items="statusItems"
+                            label="Estatus"
+                            :error-messages="form.errors.status"
+                        />
+                    </v-col>
+                    <v-col cols="12">
+                        <v-textarea
+                            v-model="form.status_notes"
+                            label="Observaciones de estatus"
+                            rows="3"
+                            :error-messages="form.errors.status_notes"
+                        />
+                    </v-col>
+                    <v-col v-if="attachments?.length" cols="12">
+                        <div class="text-caption text-medium-emphasis mb-2">Adjuntos actuales</div>
+                        <v-list density="compact">
+                            <v-list-item
+                                v-for="file in attachments"
+                                :key="file.id"
+                                :title="file.original_name"
+                                prepend-icon="mdi-paperclip"
                             />
-                            <InputError class="mt-2" :message="form.errors.year" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="engine_type" value="Tipo de motor" />
-                            <TextInput id="engine_type" v-model="form.engine_type" type="text" class="mt-1 block w-full" />
-                            <InputError class="mt-2" :message="form.errors.engine_type" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-2">
-                            <InputLabel for="current_mileage" value="Kilometraje" />
-                            <TextInput
-                                id="current_mileage"
-                                v-model="form.current_mileage"
-                                type="number"
-                                class="mt-1 block w-full"
-                                :min="vehicle.current_mileage"
-                                required
-                            />
-                            <InputError class="mt-2" :message="form.errors.current_mileage" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="status" value="Estatus" />
-                            <select
-                                id="status"
-                                v-model="form.status"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option
-                                    v-for="option in statuses"
-                                    :key="option.value"
-                                    :value="option.value"
-                                >
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                            <InputError class="mt-2" :message="form.errors.status" />
-                        </div>
-
-                        <div class="col-span-6">
-                            <InputLabel for="status_notes" value="Observaciones de estatus" />
-                            <textarea
-                                id="status_notes"
-                                v-model="form.status_notes"
-                                rows="3"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            />
-                            <InputError class="mt-2" :message="form.errors.status_notes" />
-                        </div>
-
-                        <div v-if="attachments?.length" class="col-span-6">
-                            <InputLabel value="Adjuntos actuales" />
-                            <ul class="mt-2 text-sm text-gray-600 list-disc list-inside">
-                                <li v-for="file in attachments" :key="file.id">
-                                    {{ file.original_name }}
-                                </li>
-                            </ul>
-                        </div>
-
-                        <div class="col-span-6">
-                            <InputLabel for="attachments" value="Agregar adjuntos" />
-                            <input
-                                id="attachments"
-                                type="file"
-                                multiple
-                                class="mt-1 block w-full text-sm"
-                                accept=".jpg,.jpeg,.png,.pdf,.webp"
-                                @change="onFilesChange"
-                            >
-                            <InputError class="mt-2" :message="form.errors.attachments" />
-                        </div>
-                    </template>
-
-                    <template #actions>
-                        <Link :href="route('customers.vehicles.show', [customer.id, vehicle.id])">
-                            <SecondaryButton type="button">Cancelar</SecondaryButton>
-                        </Link>
-                        <PrimaryButton class="ms-3" :disabled="form.processing">
-                            Guardar cambios
-                        </PrimaryButton>
-                    </template>
-                </FormSection>
-            </div>
-        </div>
+                        </v-list>
+                    </v-col>
+                    <v-col cols="12">
+                        <v-file-input
+                            label="Agregar adjuntos"
+                            multiple
+                            accept=".jpg,.jpeg,.png,.pdf,.webp"
+                            prepend-icon=""
+                            prepend-inner-icon="mdi-paperclip"
+                            :error-messages="form.errors.attachments"
+                            @update:model-value="onFilesChange"
+                        />
+                    </v-col>
+                </v-row>
+            </template>
+            <template #actions>
+                <FormActions
+                    :processing="form.processing"
+                    save-text="Guardar cambios"
+                    @cancel="router.visit(route('customers.vehicles.show', [customer.id, vehicle.id]))"
+                />
+            </template>
+        </FormSection>
     </AppLayout>
 </template>

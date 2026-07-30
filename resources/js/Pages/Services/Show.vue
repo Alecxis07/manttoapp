@@ -1,80 +1,123 @@
-<script setup>
+<script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
+import ConfirmDialog from '@/Components/Ui/ConfirmDialog.vue';
+import DescriptionList from '@/Components/Ui/DescriptionList.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { activeFlagMap } from '@/Components/Ui/statusMaps';
 
-const props = defineProps({
-    service: Object,
-});
+const props = defineProps<{
+    service: {
+        id: number;
+        code: string;
+        description: string;
+        type_label: string;
+        base_price: number | string;
+        base_price_note?: string;
+        unit_of_measure: string;
+        estimated_minutes?: number | null;
+        is_active: boolean;
+        in_use?: boolean;
+        category?: { name?: string } | null;
+    };
+}>();
 
-const deactivate = () => {
-    if (confirm(`¿Desactivar el servicio ${props.service.code}?`)) {
-        router.post(route('service-catalog.deactivate', props.service.id));
-    }
-};
+const confirmOpen = ref(false);
+const processing = ref(false);
+
+const detailItems = computed(() => [
+    { label: 'Descripción', value: props.service.description, key: 'description' },
+    { label: 'Categoría', value: props.service.category?.name ?? '—', key: 'category' },
+    { label: 'Tipo', value: props.service.type_label, key: 'type' },
+    { label: 'Precio base', value: props.service.base_price, key: 'price' },
+    { label: 'Unidad', value: props.service.unit_of_measure, key: 'unit' },
+    {
+        label: 'Tiempo estimado',
+        value: props.service.estimated_minutes != null ? `${props.service.estimated_minutes} min` : '—',
+        key: 'minutes',
+    },
+    { label: 'Estatus', value: props.service.is_active ? 'Activo' : 'Inactivo', key: 'status' },
+    {
+        label: 'En uso (RN-CAT-001)',
+        value: props.service.in_use ? 'Sí — solo desactivable' : 'No',
+        key: 'in_use',
+    },
+]);
+
+function askDeactivate(): void {
+    confirmOpen.value = true;
+}
+
+function confirmDeactivate(): void {
+    processing.value = true;
+    router.post(route('service-catalog.deactivate', props.service.id), {}, {
+        onFinish: () => {
+            processing.value = false;
+            confirmOpen.value = false;
+        },
+    });
+}
 </script>
 
 <template>
     <AppLayout title="Servicio">
-        <template #header>
-            <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    {{ service.code }}
-                </h2>
-                <div class="flex gap-2">
-                    <Link :href="route('service-catalog.edit', service.id)">
-                        <PrimaryButton>Editar</PrimaryButton>
-                    </Link>
-                    <SecondaryButton v-if="service.is_active" @click="deactivate">
-                        Desactivar
-                    </SecondaryButton>
-                </div>
-            </div>
-        </template>
+        <PageHeader
+            :title="service.code"
+            :breadcrumbs="[
+                { title: 'Servicios', href: route('service-catalog.index') },
+                { title: service.code, disabled: true },
+            ]"
+        >
+            <template #actions>
+                <Link :href="route('service-catalog.edit', service.id)">
+                    <v-btn color="primary" variant="flat">Editar</v-btn>
+                </Link>
+                <v-btn
+                    v-if="service.is_active"
+                    variant="tonal"
+                    color="warning"
+                    @click="askDeactivate"
+                >
+                    Desactivar
+                </v-btn>
+            </template>
+        </PageHeader>
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-4">
-                <div class="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded text-sm">
-                    {{ service.base_price_note }}
-                </div>
-                <div class="bg-white shadow-xl sm:rounded-lg p-6 space-y-4">
-                    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <dt class="text-sm text-gray-500">Descripción</dt>
-                            <dd class="text-sm text-gray-900">{{ service.description }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Categoría</dt>
-                            <dd class="text-sm text-gray-900">{{ service.category?.name ?? '—' }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Tipo</dt>
-                            <dd class="text-sm text-gray-900">{{ service.type_label }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Precio base</dt>
-                            <dd class="text-sm text-gray-900">${{ service.base_price }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Unidad</dt>
-                            <dd class="text-sm text-gray-900">{{ service.unit_of_measure }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Tiempo estimado</dt>
-                            <dd class="text-sm text-gray-900">{{ service.estimated_minutes != null ? `${service.estimated_minutes} min` : '—' }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">Estatus</dt>
-                            <dd class="text-sm text-gray-900">{{ service.is_active ? 'Activo' : 'Inactivo' }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm text-gray-500">En uso (RN-CAT-001)</dt>
-                            <dd class="text-sm text-gray-900">{{ service.in_use ? 'Sí — solo desactivable' : 'No' }}</dd>
-                        </div>
-                    </dl>
-                </div>
-            </div>
-        </div>
+        <v-alert
+            v-if="service.base_price_note"
+            type="warning"
+            variant="tonal"
+            class="mb-4"
+        >
+            {{ service.base_price_note }}
+        </v-alert>
+
+        <PanelCard>
+            <DescriptionList :items="detailItems">
+                <template #price>
+                    <MoneyText :amount="service.base_price" />
+                </template>
+                <template #status>
+                    <StatusChip
+                        :status="service.is_active ? 'active' : 'inactive'"
+                        :map="activeFlagMap"
+                    />
+                </template>
+            </DescriptionList>
+        </PanelCard>
+
+        <ConfirmDialog
+            v-model="confirmOpen"
+            title="Desactivar servicio"
+            :message="`¿Desactivar el servicio ${service.code}?`"
+            confirm-text="Desactivar"
+            confirm-color="warning"
+            :loading="processing"
+            @confirm="confirmDeactivate"
+        />
     </AppLayout>
 </template>

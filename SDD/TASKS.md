@@ -3,7 +3,7 @@
 > Registro vivo por fases. Estados: **Pendiente** | **En progreso** | **Completada**.  
 > Actualizar al cerrar cada tarea. No marcar fases futuras como completadas anticipadamente.
 
-**Última actualización:** 2026-07-29 (Fase 10 completada — cierre MVP implementación)
+**Última actualización:** 2026-07-30 (Fase 11 completada — design system Vuetify)
 
 ---
 
@@ -111,13 +111,29 @@
 
 ---
 
+## Fase 11 — Design system Vuetify y UI minimalista
+
+| ID | Tarea | RF / RN | Tests | Estado | Fecha |
+|---|---|---|---|---|---|
+| F11-01 | Setup Vuetify 4 + vite-plugin-vuetify + MDI; remover Tailwind | ADR-006 | build + vue-tsc | Completada | 2026-07-30 |
+| F11-02 | Tema minimalista light/dark + defaults de componentes | ADR-006 | visual | Completada | 2026-07-30 |
+| F11-03 | Librería Ui/*: Navigation, Modal, Tabs, Forms, Alerts, Data & Display, Selections | ADR-006 | build | Completada | 2026-07-30 |
+| F11-04 | AppShell Vuetify (drawer, app bar, búsqueda, menú usuario/equipo) | — | visual | Completada | 2026-07-30 |
+| F11-05 | Dashboard + Órdenes + Cotizaciones + Facturación | RF-REP/ORD/COT/FAC | suite feature existente | Completada | 2026-07-30 |
+| F11-06 | Clientes, Unidades, Catálogos, Usuarios, Config, Auditoría, Reportes, Búsqueda | RF-CLI/UNI/CAT/SEG/CON/AUD | suite feature existente | Completada | 2026-07-30 |
+| F11-07 | Auth, Profile, Teams, Welcome/Terms/Privacy | RF-SEG-001 | visual | Completada | 2026-07-30 |
+| F11-08 | Limpieza de componentes obsoletos + ADR-006 + build/type-check/suite | — | build + `php artisan test` | Completada | 2026-07-30 |
+
+---
+
 ## Checklist MVP (implementación)
 
 | Ítem | Estado |
 |---|---|
 | Fases 0–10 | Completadas |
+| Fase 11 (UI Vuetify) | Completada |
 | Matriz de trazabilidad | `SDD/specs/traceability-matrix.md` |
-| ADRs 001–005 | Completados |
+| ADRs 001–006 | Completados |
 
 ---
 
@@ -127,3 +143,4 @@
 - Al completar una fase, marcar tareas y anotar fecha.
 - Fase 5 requiere Fase 3 y Fase 4 completadas.
 - Cierre operativo (UAT, staging, aprobaciones de negocio) permanece fuera del alcance de implementación de código.
+- Fase 11 migró el frontend de Tailwind/Jetstream-style a Vuetify 4 (ADR-006); la lógica de negocio y tests Feature de Inertia permanecen intactos.

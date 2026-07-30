@@ -1,38 +1,101 @@
-<script setup>
-import { Link, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+<script setup lang="ts">
+import { router } from '@inertiajs/vue3';
+import { computed, ref, watch } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import TextInput from '@/Components/TextInput.vue';
+import DateText from '@/Components/Ui/DateText.vue';
+import FilterBar from '@/Components/Ui/FilterBar.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import ServerDataTable from '@/Components/Ui/ServerDataTable.vue';
+import type { DataTableHeader, LaravelPaginator } from '@/Components/Ui/ServerDataTable.vue';
 
-const props = defineProps({
-    logs: Object,
-    filters: Object,
-    actions: Array,
-    entities: Array,
-    users: Array,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface UserOption {
+    id: number;
+    name: string;
+}
+
+interface AuditLog {
+    id: number;
+    created_at?: string | null;
+    action: string;
+    subject_type_label: string;
+    subject_id?: number | string | null;
+    ip_address?: string | null;
+    user?: { name?: string } | null;
+    properties?: unknown;
+}
+
+const props = defineProps<{
+    logs: LaravelPaginator;
+    filters: {
+        entity?: string;
+        user_id?: string | number;
+        action?: string;
+        from?: string;
+        to?: string;
+    };
+    actions: string[];
+    entities: SelectOption[];
+    users: UserOption[];
+}>();
 
 const entity = ref(props.filters.entity ?? '');
 const userId = ref(props.filters.user_id ? String(props.filters.user_id) : '');
 const action = ref(props.filters.action ?? '');
 const from = ref(props.filters.from ?? '');
 const to = ref(props.filters.to ?? '');
-const selectedLogId = ref(null);
+const selectedLogId = ref<number | null>(null);
+
+const headers: DataTableHeader[] = [
+    { title: 'Fecha', key: 'created_at' },
+    { title: 'Usuario', key: 'user' },
+    { title: 'Acción', key: 'action' },
+    { title: 'Entidad', key: 'subject_type_label' },
+    { title: 'IP', key: 'ip_address' },
+    { title: 'Detalle', key: 'actions', align: 'end', sortable: false },
+];
+
+const entityItems = computed(() => [
+    { value: '', title: 'Todas' },
+    ...props.entities.map((option) => ({ value: option.value, title: option.label })),
+]);
+
+const userItems = computed(() => [
+    { value: '', title: 'Todos' },
+    ...props.users.map((user) => ({ value: String(user.id), title: user.name })),
+]);
+
+const actionItems = computed(() => [
+    { value: '', title: 'Todas' },
+    ...props.actions.map((option) => ({ value: option, title: option })),
+]);
+
+const filterParams = computed(() => ({
+    entity: entity.value || undefined,
+    user_id: userId.value || undefined,
+    action: action.value || undefined,
+    from: from.value || undefined,
+    to: to.value || undefined,
+}));
+
+const selectedLog = computed(() => {
+    const rows = (props.logs.data ?? []) as AuditLog[];
+    return rows.find((log) => log.id === selectedLogId.value) ?? null;
+});
 
 watch([entity, userId, action, from, to], () => {
-    router.get(route('audit.index'), {
-        entity: entity.value || undefined,
-        user_id: userId.value || undefined,
-        action: action.value || undefined,
-        from: from.value || undefined,
-        to: to.value || undefined,
-    }, {
+    router.get(route('audit.index'), filterParams.value, {
         preserveState: true,
         replace: true,
     });
 });
 
-const formatJson = (value) => {
+function formatJson(value: unknown): string {
     if (value === null || value === undefined) {
         return '—';
     }
@@ -42,151 +105,113 @@ const formatJson = (value) => {
     } catch {
         return String(value);
     }
-};
+}
+
+function toggleDetail(log: AuditLog): void {
+    selectedLogId.value = selectedLogId.value === log.id ? null : log.id;
+}
+
+function row(item: unknown): AuditLog {
+    return item as AuditLog;
+}
 </script>
 
 <template>
     <AppLayout title="Auditoría">
-        <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Visor de auditoría
-            </h2>
-        </template>
+        <PageHeader
+            title="Visor de auditoría"
+            subtitle="Consulta de cambios por entidad, usuario y periodo."
+        />
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Entidad</label>
-                            <select
-                                v-model="entity"
-                                class="w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm"
-                            >
-                                <option value="">Todas</option>
-                                <option
-                                    v-for="option in entities"
-                                    :key="option.value"
-                                    :value="option.value"
-                                >
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Usuario</label>
-                            <select
-                                v-model="userId"
-                                class="w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm"
-                            >
-                                <option value="">Todos</option>
-                                <option
-                                    v-for="user in users"
-                                    :key="user.id"
-                                    :value="String(user.id)"
-                                >
-                                    {{ user.name }}
-                                </option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Acción</label>
-                            <select
-                                v-model="action"
-                                class="w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm"
-                            >
-                                <option value="">Todas</option>
-                                <option
-                                    v-for="option in actions"
-                                    :key="option"
-                                    :value="option"
-                                >
-                                    {{ option }}
-                                </option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Desde</label>
-                            <TextInput v-model="from" type="date" class="w-full text-sm" />
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Hasta</label>
-                            <TextInput v-model="to" type="date" class="w-full text-sm" />
-                        </div>
-                    </div>
-                </div>
+        <FilterBar>
+            <v-select
+                v-model="entity"
+                :items="entityItems"
+                label="Entidad"
+                hide-details
+                style="max-width: 12rem"
+            />
+            <v-select
+                v-model="userId"
+                :items="userItems"
+                label="Usuario"
+                hide-details
+                style="max-width: 14rem"
+            />
+            <v-select
+                v-model="action"
+                :items="actionItems"
+                label="Acción"
+                hide-details
+                style="max-width: 12rem"
+            />
+            <v-text-field
+                v-model="from"
+                type="date"
+                label="Desde"
+                hide-details
+                style="max-width: 11rem"
+            />
+            <v-text-field
+                v-model="to"
+                type="date"
+                label="Hasta"
+                hide-details
+                style="max-width: 11rem"
+            />
+        </FilterBar>
 
-                <div class="bg-white shadow-xl sm:rounded-lg overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acción</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entidad</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP</th>
-                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Detalle</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="log in logs.data" :key="log.id">
-                                    <td class="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-                                        {{ log.created_at ? new Date(log.created_at).toLocaleString() : '—' }}
-                                    </td>
-                                    <td class="px-4 py-3 text-sm text-gray-900">
-                                        {{ log.user?.name ?? 'Sistema' }}
-                                    </td>
-                                    <td class="px-4 py-3 text-sm text-gray-600">{{ log.action }}</td>
-                                    <td class="px-4 py-3 text-sm text-gray-600">
-                                        {{ log.subject_type_label }}
-                                        <span v-if="log.subject_id" class="text-gray-400">#{{ log.subject_id }}</span>
-                                    </td>
-                                    <td class="px-4 py-3 text-sm text-gray-500 font-mono">{{ log.ip_address ?? '—' }}</td>
-                                    <td class="px-4 py-3 text-sm text-right">
-                                        <button
-                                            type="button"
-                                            class="text-indigo-600 hover:text-indigo-800"
-                                            @click="selectedLogId = selectedLogId === log.id ? null : log.id"
-                                        >
-                                            {{ selectedLogId === log.id ? 'Ocultar' : 'Ver' }}
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr v-if="logs.data.length === 0">
-                                    <td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500">
-                                        No hay registros con los filtros seleccionados.
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+        <PanelCard>
+            <ServerDataTable
+                :headers="headers"
+                :items="logs"
+                route-name="audit.index"
+                :filters="filterParams"
+                empty-title="Sin registros"
+                empty-message="No hay registros con los filtros seleccionados."
+            >
+                <template #item.created_at="{ item }">
+                    <DateText :value="row(item).created_at" time-style="short" />
+                </template>
+                <template #item.user="{ item }">
+                    {{ row(item).user?.name ?? 'Sistema' }}
+                </template>
+                <template #item.subject_type_label="{ item }">
+                    {{ row(item).subject_type_label }}
+                    <span v-if="row(item).subject_id" class="text-medium-emphasis">
+                        #{{ row(item).subject_id }}
+                    </span>
+                </template>
+                <template #item.ip_address="{ item }">
+                    <span class="font-mono text-body-2">{{ row(item).ip_address ?? '—' }}</span>
+                </template>
+                <template #item.actions="{ item }">
+                    <div class="d-flex justify-end">
+                        <v-btn
+                            variant="text"
+                            size="small"
+                            color="primary"
+                            @click="toggleDetail(row(item))"
+                        >
+                            {{ selectedLogId === row(item).id ? 'Ocultar' : 'Ver' }}
+                        </v-btn>
                     </div>
+                </template>
+            </ServerDataTable>
 
-                    <div
-                        v-for="log in logs.data.filter((item) => item.id === selectedLogId)"
-                        :key="`detail-${log.id}`"
-                        class="border-t border-gray-100 bg-gray-50 p-4"
-                    >
-                        <h4 class="text-sm font-medium text-gray-900 mb-2">Cambios (before / after)</h4>
-                        <pre class="text-xs bg-white border border-gray-200 rounded p-3 overflow-x-auto">{{ formatJson(log.properties) }}</pre>
-                    </div>
-
-                    <div
-                        v-if="logs.links?.length > 3"
-                        class="px-4 py-3 border-t border-gray-100 flex flex-wrap gap-2"
-                    >
-                        <Link
-                            v-for="(link, index) in logs.links"
-                            :key="index"
-                            :href="link.url || '#'"
-                            class="px-3 py-1 text-sm rounded border"
-                            :class="link.active ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-600'"
-                            v-html="link.label"
-                            :preserve-scroll="true"
-                        />
-                    </div>
-                </div>
-            </div>
-        </div>
+            <v-card
+                v-if="selectedLog"
+                variant="tonal"
+                class="mt-4 pa-4"
+            >
+                <h4 class="text-subtitle-2 font-weight-medium mb-2">
+                    Cambios (before / after)
+                </h4>
+                <pre
+                    class="text-caption mb-0 pa-3 rounded bg-surface"
+                    style="overflow-x: auto; white-space: pre-wrap"
+                >{{ formatJson(selectedLog.properties) }}</pre>
+            </v-card>
+        </PanelCard>
     </AppLayout>
 </template>

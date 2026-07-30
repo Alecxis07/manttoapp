@@ -1,163 +1,195 @@
-<script setup>
+<script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+import ConfirmDialog from '@/Components/Ui/ConfirmDialog.vue';
+import FilterBar from '@/Components/Ui/FilterBar.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import ServerDataTable from '@/Components/Ui/ServerDataTable.vue';
+import type { DataTableHeader, LaravelPaginator } from '@/Components/Ui/ServerDataTable.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { activeFlagFeminineMap } from '@/Components/Ui/statusMaps';
 
-const props = defineProps({
-    categories: Object,
-    filters: Object,
-});
+interface CategoryRow {
+    id: number;
+    code: string;
+    name: string;
+    services_count: number;
+    is_active: boolean;
+    in_use?: boolean;
+}
+
+const props = defineProps<{
+    categories: LaravelPaginator;
+    filters: {
+        search?: string;
+        active?: string;
+    };
+}>();
 
 const search = ref(props.filters.search ?? '');
 const active = ref(props.filters.active ?? '');
 
+const confirmOpen = ref(false);
+const processing = ref(false);
+const pending = ref<CategoryRow | null>(null);
+const confirmMode = ref<'deactivate' | 'delete'>('deactivate');
+
+const headers: DataTableHeader[] = [
+    { title: 'Código', key: 'code' },
+    { title: 'Nombre', key: 'name' },
+    { title: 'Servicios', key: 'services_count' },
+    { title: 'Estatus', key: 'is_active', sortable: false },
+    { title: 'Acciones', key: 'actions', align: 'end', sortable: false },
+];
+
+const filterParams = computed(() => ({
+    search: search.value || undefined,
+    active: active.value || undefined,
+}));
+
 watch([search, active], () => {
-    router.get(route('service-categories.index'), {
-        search: search.value || undefined,
-        active: active.value || undefined,
-    }, {
+    router.get(route('service-categories.index'), filterParams.value, {
         preserveState: true,
         replace: true,
     });
 });
 
-const deactivate = (category) => {
-    if (confirm(`¿Desactivar la categoría ${category.name}?`)) {
-        router.post(route('service-categories.deactivate', category.id));
-    }
-};
+function askDeactivate(category: CategoryRow): void {
+    pending.value = category;
+    confirmMode.value = 'deactivate';
+    confirmOpen.value = true;
+}
 
-const remove = (category) => {
+function askDelete(category: CategoryRow): void {
     if (category.in_use) {
-        alert('La categoría está en uso. Solo puede desactivarse.');
         return;
     }
-    if (confirm(`¿Eliminar la categoría ${category.name}?`)) {
-        router.delete(route('service-categories.destroy', category.id));
+
+    pending.value = category;
+    confirmMode.value = 'delete';
+    confirmOpen.value = true;
+}
+
+function confirmAction(): void {
+    if (!pending.value) {
+        return;
     }
-};
+
+    processing.value = true;
+    const finish = () => {
+        processing.value = false;
+        confirmOpen.value = false;
+        pending.value = null;
+    };
+
+    if (confirmMode.value === 'deactivate') {
+        router.post(route('service-categories.deactivate', pending.value.id), {}, { onFinish: finish });
+        return;
+    }
+
+    router.delete(route('service-categories.destroy', pending.value.id), { onFinish: finish });
+}
+
+function row(item: unknown): CategoryRow {
+    return item as CategoryRow;
+}
 </script>
 
 <template>
     <AppLayout title="Categorías de servicio">
-        <template #header>
-            <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    Categorías de servicio
-                </h2>
+        <PageHeader title="Categorías de servicio" subtitle="Agrupación del catálogo de servicios.">
+            <template #actions>
                 <Link :href="route('service-categories.create')">
-                    <PrimaryButton>
+                    <v-btn color="primary" variant="flat" prepend-icon="mdi-plus">
                         Nueva categoría
-                    </PrimaryButton>
+                    </v-btn>
                 </Link>
-            </div>
-        </template>
+            </template>
+        </PageHeader>
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div
-                    v-if="$page.props.flash?.success"
-                    class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded"
-                >
-                    {{ $page.props.flash.success }}
-                </div>
+        <FilterBar>
+            <v-text-field
+                v-model="search"
+                type="search"
+                label="Buscar"
+                placeholder="Código o nombre"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                hide-details
+                style="max-width: 18rem"
+            />
+            <v-select
+                v-model="active"
+                :items="[
+                    { value: '', title: 'Todos' },
+                    { value: '1', title: 'Activas' },
+                    { value: '0', title: 'Inactivas' },
+                ]"
+                label="Estatus"
+                hide-details
+                style="max-width: 12rem"
+            />
+        </FilterBar>
 
-                <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <div class="flex flex-col sm:flex-row gap-4 mb-6">
-                        <TextInput
-                            v-model="search"
-                            type="search"
-                            class="w-full sm:w-72"
-                            placeholder="Buscar por código o nombre"
-                        />
-                        <select
-                            v-model="active"
-                            class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
+        <PanelCard>
+            <ServerDataTable
+                :headers="headers"
+                :items="categories"
+                route-name="service-categories.index"
+                :filters="filterParams"
+                empty-title="Sin categorías"
+                empty-message="No hay categorías para mostrar."
+            >
+                <template #item.is_active="{ item }">
+                    <StatusChip
+                        :status="row(item).is_active ? 'active' : 'inactive'"
+                        :map="activeFlagFeminineMap"
+                    />
+                </template>
+                <template #item.actions="{ item }">
+                    <div class="d-flex justify-end ga-1">
+                        <Link :href="route('service-categories.show', row(item).id)">
+                            <v-btn variant="text" size="small" color="primary">Ver</v-btn>
+                        </Link>
+                        <Link :href="route('service-categories.edit', row(item).id)">
+                            <v-btn variant="text" size="small" color="primary">Editar</v-btn>
+                        </Link>
+                        <v-btn
+                            v-if="row(item).is_active"
+                            variant="text"
+                            size="small"
+                            color="warning"
+                            @click="askDeactivate(row(item))"
                         >
-                            <option value="">Todos</option>
-                            <option value="1">Activas</option>
-                            <option value="0">Inactivas</option>
-                        </select>
+                            Desactivar
+                        </v-btn>
+                        <v-btn
+                            v-if="!row(item).in_use"
+                            variant="text"
+                            size="small"
+                            color="error"
+                            @click="askDelete(row(item))"
+                        >
+                            Eliminar
+                        </v-btn>
                     </div>
+                </template>
+            </ServerDataTable>
+        </PanelCard>
 
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead>
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Código</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Servicios</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estatus</th>
-                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="category in categories.data" :key="category.id">
-                                    <td class="px-4 py-3 text-sm text-gray-900">{{ category.code }}</td>
-                                    <td class="px-4 py-3 text-sm text-gray-600">{{ category.name }}</td>
-                                    <td class="px-4 py-3 text-sm text-gray-600">{{ category.services_count }}</td>
-                                    <td class="px-4 py-3 text-sm">
-                                        <span
-                                            class="inline-flex px-2 py-1 text-xs font-semibold rounded-full"
-                                            :class="category.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'"
-                                        >
-                                            {{ category.is_active ? 'Activa' : 'Inactiva' }}
-                                        </span>
-                                    </td>
-                                    <td class="px-4 py-3 text-sm text-right space-x-2">
-                                        <Link :href="route('service-categories.show', category.id)" class="text-indigo-600 hover:text-indigo-800">
-                                            Ver
-                                        </Link>
-                                        <Link :href="route('service-categories.edit', category.id)" class="text-indigo-600 hover:text-indigo-800">
-                                            Editar
-                                        </Link>
-                                        <button
-                                            v-if="category.is_active"
-                                            type="button"
-                                            class="text-amber-600 hover:text-amber-800"
-                                            @click="deactivate(category)"
-                                        >
-                                            Desactivar
-                                        </button>
-                                        <button
-                                            v-if="!category.in_use"
-                                            type="button"
-                                            class="text-red-600 hover:text-red-800"
-                                            @click="remove(category)"
-                                        >
-                                            Eliminar
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr v-if="categories.data.length === 0">
-                                    <td colspan="5" class="px-4 py-8 text-center text-sm text-gray-500">
-                                        No hay categorías para mostrar.
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div v-if="categories.links?.length > 3" class="mt-6 flex flex-wrap gap-2">
-                        <template v-for="(link, index) in categories.links" :key="index">
-                            <Link
-                                v-if="link.url"
-                                :href="link.url"
-                                class="px-3 py-1 text-sm border rounded"
-                                :class="link.active ? 'bg-gray-800 text-white' : 'bg-white text-gray-700'"
-                                v-html="link.label"
-                            />
-                            <span
-                                v-else
-                                class="px-3 py-1 text-sm border rounded text-gray-400"
-                                v-html="link.label"
-                            />
-                        </template>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <ConfirmDialog
+            v-model="confirmOpen"
+            :title="confirmMode === 'deactivate' ? 'Desactivar categoría' : 'Eliminar categoría'"
+            :message="pending
+                ? (confirmMode === 'deactivate'
+                    ? `¿Desactivar la categoría ${pending.name}?`
+                    : `¿Eliminar la categoría ${pending.name}?`)
+                : undefined"
+            :confirm-text="confirmMode === 'deactivate' ? 'Desactivar' : 'Eliminar'"
+            :loading="processing"
+            @confirm="confirmAction"
+        />
     </AppLayout>
 </template>

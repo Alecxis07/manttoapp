@@ -1,157 +1,174 @@
-<script setup>
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+import FilterBar from '@/Components/Ui/FilterBar.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import ServerDataTable from '@/Components/Ui/ServerDataTable.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { orderStatusMap } from '@/Components/Ui/statusMaps';
+import type { DataTableHeader, LaravelPaginator } from '@/Components/Ui/ServerDataTable.vue';
 
-const props = defineProps({
-    orders: Object,
-    filters: Object,
-    statuses: Array,
-    types: Array,
-    customers: Array,
-    can: Object,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface CustomerOption {
+    id: number;
+    name: string;
+}
+
+interface OrderRow {
+    id: number;
+    folio: string;
+    customer_name?: string;
+    vehicle_plate?: string;
+    type_label?: string;
+    status: string;
+    status_label?: string;
+    total: number | string;
+}
+
+const props = defineProps<{
+    orders: LaravelPaginator;
+    filters: {
+        search?: string;
+        status?: string;
+        type?: string;
+        customer_id?: string | number;
+    };
+    statuses: SelectOption[];
+    types: SelectOption[];
+    customers: CustomerOption[];
+    can?: { create?: boolean };
+}>();
 
 const search = ref(props.filters.search ?? '');
 const status = ref(props.filters.status ?? '');
 const type = ref(props.filters.type ?? '');
 const customerId = ref(props.filters.customer_id ? String(props.filters.customer_id) : '');
 
+const activeFilters = computed(() => ({
+    search: search.value || undefined,
+    status: status.value || undefined,
+    type: type.value || undefined,
+    customer_id: customerId.value || undefined,
+}));
+
 watch([search, status, type, customerId], () => {
-    router.get(route('maintenance-orders.index'), {
-        search: search.value || undefined,
-        status: status.value || undefined,
-        type: type.value || undefined,
-        customer_id: customerId.value || undefined,
-    }, {
+    router.get(route('maintenance-orders.index'), activeFilters.value, {
         preserveState: true,
         replace: true,
     });
 });
+
+const headers: DataTableHeader[] = [
+    { title: 'Folio', key: 'folio', sortable: false },
+    { title: 'Cliente', key: 'customer_name', sortable: false },
+    { title: 'Unidad', key: 'vehicle_plate', sortable: false },
+    { title: 'Tipo', key: 'type_label', sortable: false },
+    { title: 'Estado', key: 'status', sortable: false },
+    { title: 'Total', key: 'total', align: 'end', sortable: false },
+];
+
+const statusItems = computed(() => [
+    { title: 'Todos los estados', value: '' },
+    ...props.statuses.map((option) => ({ title: option.label, value: option.value })),
+]);
+
+const typeItems = computed(() => [
+    { title: 'Todos los tipos', value: '' },
+    ...props.types.map((option) => ({ title: option.label, value: option.value })),
+]);
+
+const customerItems = computed(() => [
+    { title: 'Todos los clientes', value: '' },
+    ...props.customers.map((customer) => ({
+        title: customer.name,
+        value: String(customer.id),
+    })),
+]);
 </script>
 
 <template>
     <AppLayout title="Órdenes">
-        <template #header>
-            <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    Órdenes de mantenimiento
-                </h2>
-                <Link v-if="can?.create" :href="route('maintenance-orders.create')">
-                    <PrimaryButton>
+        <PageHeader title="Órdenes de mantenimiento">
+            <template v-if="can?.create" #actions>
+                <Link :href="route('maintenance-orders.create')" class="text-decoration-none">
+                    <v-btn color="primary" variant="flat" prepend-icon="mdi-plus">
                         Nueva orden
-                    </PrimaryButton>
+                    </v-btn>
                 </Link>
-            </div>
-        </template>
+            </template>
+        </PageHeader>
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div
-                    v-if="$page.props.flash?.success"
-                    class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded"
-                >
-                    {{ $page.props.flash.success }}
-                </div>
+        <FilterBar>
+            <v-text-field
+                v-model="search"
+                label="Buscar"
+                placeholder="Folio, cliente, placas…"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                hide-details
+                style="max-width: 18rem"
+            />
+            <v-select
+                v-model="status"
+                :items="statusItems"
+                label="Estado"
+                hide-details
+                style="max-width: 14rem"
+            />
+            <v-select
+                v-model="type"
+                :items="typeItems"
+                label="Tipo"
+                hide-details
+                style="max-width: 12rem"
+            />
+            <v-select
+                v-model="customerId"
+                :items="customerItems"
+                label="Cliente"
+                hide-details
+                style="max-width: 16rem"
+            />
+        </FilterBar>
 
-                <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <div class="flex flex-col lg:flex-row gap-4 mb-6">
-                        <TextInput
-                            v-model="search"
-                            type="search"
-                            class="w-full lg:w-64"
-                            placeholder="Buscar folio, cliente, placas…"
-                        />
-                        <select
-                            v-model="status"
-                            class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                        >
-                            <option value="">Todos los estados</option>
-                            <option v-for="option in statuses" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                            </option>
-                        </select>
-                        <select
-                            v-model="type"
-                            class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                        >
-                            <option value="">Todos los tipos</option>
-                            <option v-for="option in types" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                            </option>
-                        </select>
-                        <select
-                            v-model="customerId"
-                            class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                        >
-                            <option value="">Todos los clientes</option>
-                            <option
-                                v-for="customer in customers"
-                                :key="customer.id"
-                                :value="String(customer.id)"
-                            >
-                                {{ customer.name }}
-                            </option>
-                        </select>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead>
-                                <tr>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Folio</th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unidad</th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="order in orders.data" :key="order.id" class="hover:bg-gray-50">
-                                    <td class="px-3 py-3 text-sm">
-                                        <Link
-                                            :href="route('maintenance-orders.show', order.id)"
-                                            class="text-indigo-600 hover:underline font-medium"
-                                        >
-                                            {{ order.folio }}
-                                        </Link>
-                                    </td>
-                                    <td class="px-3 py-3 text-sm text-gray-700">{{ order.customer_name }}</td>
-                                    <td class="px-3 py-3 text-sm text-gray-700">{{ order.vehicle_plate }}</td>
-                                    <td class="px-3 py-3 text-sm text-gray-700">{{ order.type_label }}</td>
-                                    <td class="px-3 py-3 text-sm">
-                                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-800">
-                                            {{ order.status_label }}
-                                        </span>
-                                    </td>
-                                    <td class="px-3 py-3 text-sm text-right text-gray-700">
-                                        ${{ Number(order.total).toFixed(2) }}
-                                    </td>
-                                </tr>
-                                <tr v-if="!orders.data?.length">
-                                    <td colspan="6" class="px-3 py-8 text-center text-sm text-gray-500">
-                                        No hay órdenes registradas.
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div v-if="orders.links?.length > 3" class="mt-4 flex gap-2 flex-wrap">
-                        <Link
-                            v-for="(link, index) in orders.links"
-                            :key="index"
-                            :href="link.url || '#'"
-                            class="px-3 py-1 text-sm rounded border"
-                            :class="link.active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700'"
-                            v-html="link.label"
-                        />
-                    </div>
-                </div>
-            </div>
-        </div>
+        <PanelCard>
+            <ServerDataTable
+                :headers="headers"
+                :items="orders"
+                route-name="maintenance-orders.index"
+                :filters="activeFilters"
+                empty-title="Sin órdenes"
+                empty-message="No hay órdenes registradas."
+            >
+                <template #item.folio="{ item }">
+                    <Link
+                        :href="route('maintenance-orders.show', (item as OrderRow).id)"
+                        class="text-primary text-decoration-none font-weight-medium"
+                    >
+                        {{ (item as OrderRow).folio }}
+                    </Link>
+                </template>
+                <template #item.status="{ item }">
+                    <StatusChip :status="(item as OrderRow).status" :map="orderStatusMap" />
+                </template>
+                <template #item.total="{ item }">
+                    <MoneyText :amount="(item as OrderRow).total" />
+                </template>
+                <template v-if="can?.create" #empty-action>
+                    <Link :href="route('maintenance-orders.create')" class="text-decoration-none">
+                        <v-btn color="primary" variant="flat" prepend-icon="mdi-plus">
+                            Nueva orden
+                        </v-btn>
+                    </Link>
+                </template>
+            </ServerDataTable>
+        </PanelCard>
     </AppLayout>
 </template>

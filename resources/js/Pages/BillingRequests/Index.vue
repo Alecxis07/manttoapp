@@ -1,113 +1,141 @@
-<script setup>
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+import FilterBar from '@/Components/Ui/FilterBar.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import ServerDataTable from '@/Components/Ui/ServerDataTable.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { billingStatusMap } from '@/Components/Ui/statusMaps';
+import type { DataTableHeader, LaravelPaginator } from '@/Components/Ui/ServerDataTable.vue';
 
-const props = defineProps({
-    billingRequests: Object,
-    filters: Object,
-    statuses: Array,
-    can: Object,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface BillingRow {
+    id: number;
+    folio: string;
+    status: string;
+    status_label?: string;
+    total: number | string;
+    invoice_reference?: string | null;
+    customer?: { name?: string } | null;
+}
+
+const props = defineProps<{
+    billingRequests: LaravelPaginator;
+    filters: { search?: string; status?: string };
+    statuses: SelectOption[];
+    can?: { create?: boolean };
+}>();
 
 const search = ref(props.filters.search ?? '');
 const status = ref(props.filters.status ?? '');
 
+const activeFilters = computed(() => ({
+    search: search.value || undefined,
+    status: status.value || undefined,
+}));
+
 watch([search, status], () => {
-    router.get(route('billing-requests.index'), {
-        search: search.value || undefined,
-        status: status.value || undefined,
-    }, {
+    router.get(route('billing-requests.index'), activeFilters.value, {
         preserveState: true,
         replace: true,
     });
 });
+
+const headers: DataTableHeader[] = [
+    { title: 'Folio', key: 'folio', sortable: false },
+    { title: 'Cliente', key: 'customer', sortable: false },
+    { title: 'Estado', key: 'status', sortable: false },
+    { title: 'Total', key: 'total', align: 'end', sortable: false },
+    { title: 'Factura', key: 'invoice_reference', sortable: false },
+    { title: 'Acciones', key: 'actions', align: 'end', sortable: false },
+];
+
+const statusItems = computed(() => [
+    { title: 'Todos los estatus', value: '' },
+    ...props.statuses.map((option) => ({ title: option.label, value: option.value })),
+]);
 </script>
 
 <template>
     <AppLayout title="Facturación">
-        <template #header>
-            <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    Solicitudes de facturación
-                </h2>
-                <Link v-if="can?.create" :href="route('billing-requests.create')">
-                    <PrimaryButton>
+        <PageHeader title="Solicitudes de facturación">
+            <template v-if="can?.create" #actions>
+                <Link :href="route('billing-requests.create')" class="text-decoration-none">
+                    <v-btn color="primary" variant="flat" prepend-icon="mdi-plus">
                         Nueva solicitud
-                    </PrimaryButton>
+                    </v-btn>
                 </Link>
-            </div>
-        </template>
+            </template>
+        </PageHeader>
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div
-                    v-if="$page.props.flash?.success"
-                    class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded"
-                >
-                    {{ $page.props.flash.success }}
-                </div>
+        <FilterBar>
+            <v-text-field
+                v-model="search"
+                label="Buscar"
+                placeholder="Folio, cliente o referencia"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                hide-details
+                style="max-width: 18rem"
+            />
+            <v-select
+                v-model="status"
+                :items="statusItems"
+                label="Estatus"
+                hide-details
+                style="max-width: 14rem"
+            />
+        </FilterBar>
 
-                <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <div class="flex flex-col lg:flex-row gap-4 mb-6">
-                        <TextInput
-                            v-model="search"
-                            type="search"
-                            class="w-full lg:w-72"
-                            placeholder="Buscar folio, cliente o referencia"
-                        />
-                        <select
-                            v-model="status"
-                            class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                        >
-                            <option value="">Todos los estatus</option>
-                            <option
-                                v-for="option in statuses"
-                                :key="option.value"
-                                :value="option.value"
-                            >
-                                {{ option.label }}
-                            </option>
-                        </select>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead>
-                                <tr>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Folio</th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Factura</th>
-                                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="row in billingRequests.data" :key="row.id">
-                                    <td class="px-3 py-3 text-sm text-gray-900">{{ row.folio }}</td>
-                                    <td class="px-3 py-3 text-sm text-gray-700">{{ row.customer?.name }}</td>
-                                    <td class="px-3 py-3 text-sm text-gray-700">{{ row.status_label }}</td>
-                                    <td class="px-3 py-3 text-sm text-right text-gray-900">${{ row.total }}</td>
-                                    <td class="px-3 py-3 text-sm text-gray-700">{{ row.invoice_reference || '—' }}</td>
-                                    <td class="px-3 py-3 text-sm text-right">
-                                        <Link :href="route('billing-requests.show', row.id)" class="text-indigo-600 hover:text-indigo-900">
-                                            Ver
-                                        </Link>
-                                    </td>
-                                </tr>
-                                <tr v-if="!billingRequests.data.length">
-                                    <td colspan="6" class="px-3 py-8 text-center text-sm text-gray-500">
-                                        No hay solicitudes de facturación.
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <PanelCard>
+            <ServerDataTable
+                :headers="headers"
+                :items="billingRequests"
+                route-name="billing-requests.index"
+                :filters="activeFilters"
+                empty-title="Sin solicitudes"
+                empty-message="No hay solicitudes de facturación."
+            >
+                <template #item.folio="{ item }">
+                    <span class="font-weight-medium">{{ (item as BillingRow).folio }}</span>
+                </template>
+                <template #item.customer="{ item }">
+                    {{ (item as BillingRow).customer?.name }}
+                </template>
+                <template #item.status="{ item }">
+                    <StatusChip :status="(item as BillingRow).status" :map="billingStatusMap" />
+                </template>
+                <template #item.total="{ item }">
+                    <MoneyText :amount="(item as BillingRow).total" />
+                </template>
+                <template #item.invoice_reference="{ item }">
+                    {{ (item as BillingRow).invoice_reference || '—' }}
+                </template>
+                <template #item.actions="{ item }">
+                    <Link
+                        :href="route('billing-requests.show', (item as BillingRow).id)"
+                        class="text-decoration-none"
+                    >
+                        <v-btn size="small" variant="text" color="primary">
+                            Ver
+                        </v-btn>
+                    </Link>
+                </template>
+                <template v-if="can?.create" #empty-action>
+                    <Link :href="route('billing-requests.create')" class="text-decoration-none">
+                        <v-btn color="primary" variant="flat" prepend-icon="mdi-plus">
+                            Nueva solicitud
+                        </v-btn>
+                    </Link>
+                </template>
+            </ServerDataTable>
+        </PanelCard>
     </AppLayout>
 </template>

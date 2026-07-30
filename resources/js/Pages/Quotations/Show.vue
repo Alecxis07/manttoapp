@@ -1,185 +1,425 @@
-<script setup>
+<script setup lang="ts">
+import { computed, ref } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
+import ConfirmDialog from '@/Components/Ui/ConfirmDialog.vue';
+import DateText from '@/Components/Ui/DateText.vue';
+import DescriptionList from '@/Components/Ui/DescriptionList.vue';
+import FormDialog from '@/Components/Ui/FormDialog.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import TabsCard from '@/Components/Ui/TabsCard.vue';
+import { quotationStatusMap } from '@/Components/Ui/statusMaps';
+import type { TabItem } from '@/Components/Ui/TabsCard.vue';
 
-const props = defineProps({
-    quotation: Object,
-    versions: Array,
-    can: Object,
-});
+interface QuotationItem {
+    id: number;
+    item_type_label: string;
+    code?: string;
+    description: string;
+    quantity: number | string;
+    unit_price: number | string;
+    discount: number | string;
+    line_total: number | string;
+}
 
-const send = () => router.post(route('quotations.send', props.quotation.id));
-const version = () => {
-    if (confirm('¿Crear una nueva versión a partir de esta cotización?')) {
-        router.post(route('quotations.version', props.quotation.id));
-    }
-};
-const accept = () => router.post(route('quotations.accept', props.quotation.id));
-const reject = () => {
-    const reason = prompt('Motivo del rechazo (opcional):') ?? '';
-    router.post(route('quotations.reject', props.quotation.id), { reason });
-};
-const convert = () => {
-    if (confirm('¿Convertir esta cotización aceptada en una orden de mantenimiento?')) {
-        router.post(route('quotations.convert', props.quotation.id));
-    }
-};
-const cancel = () => {
-    const reason = prompt('Motivo de cancelación (opcional):') ?? '';
-    router.post(route('quotations.cancel', props.quotation.id), { reason });
-};
+interface StatusHistoryRow {
+    created_at: string;
+    to_status_label: string;
+    user?: { name?: string } | null;
+}
+
+interface VersionRow {
+    id: number;
+    folio: string;
+    version: number;
+    status: string;
+    status_label: string;
+    total: number | string;
+    is_current?: boolean;
+}
+
+interface QuotationDetail {
+    id: number;
+    folio: string;
+    version: number;
+    status: string;
+    status_label: string;
+    is_editable?: boolean;
+    can_be_accepted?: boolean;
+    maintenance_order_id?: number | null;
+    valid_until?: string | null;
+    issued_at?: string | null;
+    commercial_terms?: string | null;
+    subtotal: number | string;
+    discount_total: number | string;
+    tax_total: number | string;
+    total: number | string;
+    tax_rate: number | string;
+    customer?: { name?: string } | null;
+    vehicle?: { license_plate?: string } | null;
+    items: QuotationItem[];
+    status_history: StatusHistoryRow[];
+}
+
+const props = defineProps<{
+    quotation: QuotationDetail;
+    versions: VersionRow[];
+    can?: {
+        exportPdf?: boolean;
+        update?: boolean;
+        send?: boolean;
+        version?: boolean;
+        accept?: boolean;
+        reject?: boolean;
+        convert?: boolean;
+        cancel?: boolean;
+    };
+}>();
+
+const activeTab = ref('items');
+const confirmVersion = ref(false);
+const confirmConvert = ref(false);
+const rejectDialog = ref(false);
+const cancelDialog = ref(false);
+const actionReason = ref('');
+const actionLoading = ref(false);
+
+const tabs: TabItem[] = [
+    { key: 'items', title: 'Partidas', icon: 'mdi-format-list-bulleted' },
+    { key: 'versions', title: 'Versiones', icon: 'mdi-source-branch' },
+    { key: 'history', title: 'Historial', icon: 'mdi-history' },
+];
+
+const summaryItems = computed(() => [
+    { key: 'customer', label: 'Cliente', value: props.quotation.customer?.name },
+    { key: 'vehicle', label: 'Unidad', value: props.quotation.vehicle?.license_plate },
+    { key: 'valid_until', label: 'Vigencia', value: props.quotation.valid_until || '—' },
+    { key: 'issued_at', label: 'Emitida', value: props.quotation.issued_at || '—' },
+    {
+        key: 'commercial_terms',
+        label: 'Condiciones',
+        value: props.quotation.commercial_terms || '—',
+    },
+]);
+
+function send(): void {
+    actionLoading.value = true;
+    router.post(
+        route('quotations.send', props.quotation.id),
+        {},
+        { onFinish: () => { actionLoading.value = false; } },
+    );
+}
+
+function accept(): void {
+    actionLoading.value = true;
+    router.post(
+        route('quotations.accept', props.quotation.id),
+        {},
+        { onFinish: () => { actionLoading.value = false; } },
+    );
+}
+
+function createVersion(): void {
+    actionLoading.value = true;
+    router.post(
+        route('quotations.version', props.quotation.id),
+        {},
+        {
+            onFinish: () => {
+                actionLoading.value = false;
+                confirmVersion.value = false;
+            },
+        },
+    );
+}
+
+function convert(): void {
+    actionLoading.value = true;
+    router.post(
+        route('quotations.convert', props.quotation.id),
+        {},
+        {
+            onFinish: () => {
+                actionLoading.value = false;
+                confirmConvert.value = false;
+            },
+        },
+    );
+}
+
+function reject(): void {
+    actionLoading.value = true;
+    router.post(
+        route('quotations.reject', props.quotation.id),
+        { reason: actionReason.value },
+        {
+            onFinish: () => {
+                actionLoading.value = false;
+                rejectDialog.value = false;
+                actionReason.value = '';
+            },
+        },
+    );
+}
+
+function cancel(): void {
+    actionLoading.value = true;
+    router.post(
+        route('quotations.cancel', props.quotation.id),
+        { reason: actionReason.value },
+        {
+            onFinish: () => {
+                actionLoading.value = false;
+                cancelDialog.value = false;
+                actionReason.value = '';
+            },
+        },
+    );
+}
+
+const canShowVersion = computed(
+    () =>
+        !!props.can?.version &&
+        props.quotation.status !== 'draft' &&
+        props.quotation.status !== 'accepted' &&
+        props.quotation.status !== 'cancelled',
+);
+
+const canCancel = computed(
+    () =>
+        !!props.can?.cancel &&
+        props.quotation.status !== 'cancelled' &&
+        props.quotation.status !== 'accepted',
+);
 </script>
 
 <template>
     <AppLayout :title="quotation.folio">
-        <template #header>
-            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                    <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                        {{ quotation.folio }}
-                        <span class="text-gray-500 font-normal">v{{ quotation.version }}</span>
-                    </h2>
-                    <p class="text-sm text-gray-500">{{ quotation.status_label }}</p>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                    <a
-                        v-if="can?.exportPdf"
-                        :href="route('quotations.pdf', quotation.id)"
-                        class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest shadow-sm hover:bg-gray-50"
-                    >
-                        PDF
-                    </a>
-                    <Link
-                        v-if="can?.update && quotation.is_editable"
-                        :href="route('quotations.edit', quotation.id)"
-                    >
-                        <SecondaryButton>Editar</SecondaryButton>
-                    </Link>
-                    <PrimaryButton
-                        v-if="can?.send && quotation.status === 'draft'"
-                        type="button"
-                        @click="send"
-                    >
-                        Enviar
-                    </PrimaryButton>
-                    <SecondaryButton
-                        v-if="can?.version && quotation.status !== 'draft' && quotation.status !== 'accepted' && quotation.status !== 'cancelled'"
-                        type="button"
-                        @click="version"
-                    >
-                        Nueva versión
-                    </SecondaryButton>
-                    <PrimaryButton
-                        v-if="can?.accept && quotation.can_be_accepted"
-                        type="button"
-                        @click="accept"
-                    >
-                        Aceptar
-                    </PrimaryButton>
-                    <SecondaryButton
-                        v-if="can?.reject && quotation.status === 'sent'"
-                        type="button"
-                        @click="reject"
-                    >
-                        Rechazar
-                    </SecondaryButton>
-                    <PrimaryButton
-                        v-if="can?.convert && quotation.status === 'accepted' && !quotation.maintenance_order_id"
-                        type="button"
-                        @click="convert"
-                    >
-                        Convertir a orden
-                    </PrimaryButton>
-                    <SecondaryButton
-                        v-if="can?.cancel && quotation.status !== 'cancelled' && quotation.status !== 'accepted'"
-                        type="button"
-                        @click="cancel"
-                    >
-                        Cancelar
-                    </SecondaryButton>
-                </div>
-            </div>
-        </template>
-
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div
-                    v-if="$page.props.flash?.success"
-                    class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded"
+        <PageHeader :title="quotation.folio" :subtitle="`Versión ${quotation.version}`">
+            <template #actions>
+                <StatusChip :status="quotation.status" :map="quotationStatusMap" />
+                <v-btn
+                    v-if="can?.exportPdf"
+                    :href="route('quotations.pdf', quotation.id)"
+                    target="_blank"
+                    rel="noopener"
+                    variant="tonal"
+                    prepend-icon="mdi-file-pdf-box"
                 >
-                    {{ $page.props.flash.success }}
-                </div>
+                    PDF
+                </v-btn>
+                <Link
+                    v-if="can?.update && quotation.is_editable"
+                    :href="route('quotations.edit', quotation.id)"
+                    class="text-decoration-none"
+                >
+                    <v-btn variant="tonal" prepend-icon="mdi-pencil">
+                        Editar
+                    </v-btn>
+                </Link>
+                <v-btn
+                    v-if="can?.send && quotation.status === 'draft'"
+                    color="primary"
+                    variant="flat"
+                    :loading="actionLoading"
+                    @click="send"
+                >
+                    Enviar
+                </v-btn>
+                <v-btn
+                    v-if="canShowVersion"
+                    variant="tonal"
+                    @click="confirmVersion = true"
+                >
+                    Nueva versión
+                </v-btn>
+                <v-btn
+                    v-if="can?.accept && quotation.can_be_accepted"
+                    color="success"
+                    variant="flat"
+                    :loading="actionLoading"
+                    @click="accept"
+                >
+                    Aceptar
+                </v-btn>
+                <v-btn
+                    v-if="can?.reject && quotation.status === 'sent'"
+                    color="error"
+                    variant="tonal"
+                    @click="rejectDialog = true"
+                >
+                    Rechazar
+                </v-btn>
+                <v-btn
+                    v-if="can?.convert && quotation.status === 'accepted' && !quotation.maintenance_order_id"
+                    color="primary"
+                    variant="flat"
+                    @click="confirmConvert = true"
+                >
+                    Convertir a orden
+                </v-btn>
+                <v-btn
+                    v-if="canCancel"
+                    color="error"
+                    variant="text"
+                    @click="cancelDialog = true"
+                >
+                    Cancelar
+                </v-btn>
+            </template>
+        </PageHeader>
 
-                <div class="bg-white shadow-xl sm:rounded-lg p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                    <div><span class="text-gray-500">Cliente:</span> {{ quotation.customer?.name }}</div>
-                    <div><span class="text-gray-500">Unidad:</span> {{ quotation.vehicle?.license_plate }}</div>
-                    <div><span class="text-gray-500">Vigencia:</span> {{ quotation.valid_until || '—' }}</div>
-                    <div><span class="text-gray-500">Emitida:</span> {{ quotation.issued_at || '—' }}</div>
-                    <div class="md:col-span-2"><span class="text-gray-500">Condiciones:</span> {{ quotation.commercial_terms || '—' }}</div>
-                </div>
+        <PanelCard class="mb-4">
+            <DescriptionList :items="summaryItems">
+                <template #valid_until="{ item }">
+                    <DateText v-if="quotation.valid_until" :value="quotation.valid_until" />
+                    <span v-else>{{ item.value }}</span>
+                </template>
+                <template #issued_at="{ item }">
+                    <DateText
+                        v-if="quotation.issued_at"
+                        :value="quotation.issued_at"
+                        time-style="short"
+                    />
+                    <span v-else>{{ item.value }}</span>
+                </template>
+            </DescriptionList>
+        </PanelCard>
 
-                <div class="bg-white shadow-xl sm:rounded-lg p-6 overflow-x-auto">
-                    <h3 class="font-medium text-gray-900 mb-4">Partidas</h3>
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead>
-                            <tr>
-                                <th class="px-3 py-2 text-left text-xs uppercase text-gray-500">Tipo</th>
-                                <th class="px-3 py-2 text-left text-xs uppercase text-gray-500">Descripción</th>
-                                <th class="px-3 py-2 text-right text-xs uppercase text-gray-500">Cant.</th>
-                                <th class="px-3 py-2 text-right text-xs uppercase text-gray-500">P. unit.</th>
-                                <th class="px-3 py-2 text-right text-xs uppercase text-gray-500">Desc.</th>
-                                <th class="px-3 py-2 text-right text-xs uppercase text-gray-500">Importe</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            <tr v-for="item in quotation.items" :key="item.id">
-                                <td class="px-3 py-2 text-sm">{{ item.item_type_label }}</td>
-                                <td class="px-3 py-2 text-sm">{{ item.code }} — {{ item.description }}</td>
-                                <td class="px-3 py-2 text-sm text-right">{{ item.quantity }}</td>
-                                <td class="px-3 py-2 text-sm text-right">${{ item.unit_price }}</td>
-                                <td class="px-3 py-2 text-sm text-right">${{ item.discount }}</td>
-                                <td class="px-3 py-2 text-sm text-right">${{ item.line_total }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <div class="mt-4 text-sm text-right space-y-1">
-                        <div>Subtotal: ${{ quotation.subtotal }}</div>
-                        <div>Descuento: ${{ quotation.discount_total }}</div>
-                        <div>IVA ({{ quotation.tax_rate }}%): ${{ quotation.tax_total }}</div>
-                        <div class="font-semibold text-base">Total: ${{ quotation.total }}</div>
+        <TabsCard v-model="activeTab" :tabs="tabs">
+            <template #items>
+                <v-table density="comfortable">
+                    <thead>
+                        <tr>
+                            <th>Tipo</th>
+                            <th>Descripción</th>
+                            <th class="text-end">Cant.</th>
+                            <th class="text-end">P. unit.</th>
+                            <th class="text-end">Desc.</th>
+                            <th class="text-end">Importe</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="item in quotation.items" :key="item.id">
+                            <td>{{ item.item_type_label }}</td>
+                            <td>{{ item.code }} — {{ item.description }}</td>
+                            <td class="text-end">{{ item.quantity }}</td>
+                            <td class="text-end"><MoneyText :amount="item.unit_price" /></td>
+                            <td class="text-end"><MoneyText :amount="item.discount" /></td>
+                            <td class="text-end"><MoneyText :amount="item.line_total" /></td>
+                        </tr>
+                    </tbody>
+                </v-table>
+                <div class="text-end text-body-2 mt-4">
+                    <div>Subtotal: <MoneyText :amount="quotation.subtotal" /></div>
+                    <div>Descuento: <MoneyText :amount="quotation.discount_total" /></div>
+                    <div>
+                        IVA ({{ quotation.tax_rate }}%):
+                        <MoneyText :amount="quotation.tax_total" />
+                    </div>
+                    <div class="text-subtitle-1 font-weight-bold mt-1">
+                        Total: <MoneyText :amount="quotation.total" />
                     </div>
                 </div>
+            </template>
 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                        <h3 class="font-medium text-gray-900 mb-4">Versiones</h3>
-                        <ul class="space-y-2 text-sm">
-                            <li v-for="versionRow in versions" :key="versionRow.id">
+            <template #versions>
+                <v-list class="bg-transparent pa-0">
+                    <v-list-item
+                        v-for="versionRow in versions"
+                        :key="versionRow.id"
+                        :title="`${versionRow.folio} v${versionRow.version}`"
+                        :subtitle="versionRow.status_label"
+                        :active="versionRow.is_current"
+                    >
+                        <template #prepend>
+                            <StatusChip :status="versionRow.status" :map="quotationStatusMap" />
+                        </template>
+                        <template #append>
+                            <div class="d-flex align-center ga-2">
+                                <MoneyText :amount="versionRow.total" />
                                 <Link
                                     :href="route('quotations.show', versionRow.id)"
-                                    class="text-indigo-600 hover:text-indigo-900"
-                                    :class="{ 'font-semibold': versionRow.is_current }"
+                                    class="text-decoration-none"
                                 >
-                                    {{ versionRow.folio }} v{{ versionRow.version }} — {{ versionRow.status_label }} (${{ versionRow.total }})
+                                    <v-btn size="small" variant="text" color="primary">
+                                        Ver
+                                    </v-btn>
                                 </Link>
-                            </li>
-                        </ul>
-                    </div>
+                            </div>
+                        </template>
+                    </v-list-item>
+                </v-list>
+            </template>
 
-                    <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                        <h3 class="font-medium text-gray-900 mb-4">Historial de estados</h3>
-                        <ul class="space-y-2 text-sm">
-                            <li v-for="(row, index) in quotation.status_history" :key="index">
-                                <span class="text-gray-500">{{ row.created_at }}</span>
-                                — {{ row.to_status_label }}
-                                <span v-if="row.user"> ({{ row.user.name }})</span>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
+            <template #history>
+                <v-timeline density="compact" side="end">
+                    <v-timeline-item
+                        v-for="(row, index) in quotation.status_history"
+                        :key="index"
+                        dot-color="primary"
+                        size="small"
+                    >
+                        <div class="text-subtitle-2">{{ row.to_status_label }}</div>
+                        <div class="text-caption text-medium-emphasis">
+                            <DateText :value="row.created_at" time-style="short" />
+                            <span v-if="row.user"> · {{ row.user.name }}</span>
+                        </div>
+                    </v-timeline-item>
+                </v-timeline>
+            </template>
+        </TabsCard>
+
+        <ConfirmDialog
+            v-model="confirmVersion"
+            title="Nueva versión"
+            message="¿Crear una nueva versión a partir de esta cotización?"
+            confirm-text="Crear versión"
+            confirm-color="primary"
+            :loading="actionLoading"
+            @confirm="createVersion"
+        />
+
+        <ConfirmDialog
+            v-model="confirmConvert"
+            title="Convertir a orden"
+            message="¿Convertir esta cotización aceptada en una orden de mantenimiento?"
+            confirm-text="Convertir"
+            confirm-color="primary"
+            :loading="actionLoading"
+            @confirm="convert"
+        />
+
+        <FormDialog
+            v-model="rejectDialog"
+            title="Rechazar cotización"
+            save-text="Rechazar"
+            :loading="actionLoading"
+            @save="reject"
+        >
+            <v-textarea
+                v-model="actionReason"
+                label="Motivo del rechazo (opcional)"
+                rows="3"
+            />
+        </FormDialog>
+
+        <FormDialog
+            v-model="cancelDialog"
+            title="Cancelar cotización"
+            save-text="Cancelar cotización"
+            :loading="actionLoading"
+            @save="cancel"
+        >
+            <v-textarea
+                v-model="actionReason"
+                label="Motivo de cancelación (opcional)"
+                rows="3"
+            />
+        </FormDialog>
     </AppLayout>
 </template>

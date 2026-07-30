@@ -1,130 +1,179 @@
-<script setup>
+<script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import EmptyState from '@/Components/Ui/EmptyState.vue';
+import FilterBar from '@/Components/Ui/FilterBar.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import ServerDataTable from '@/Components/Ui/ServerDataTable.vue';
+import type { DataTableHeader, LaravelPaginator } from '@/Components/Ui/ServerDataTable.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { orderStatusMap } from '@/Components/Ui/statusMaps';
 
-const props = defineProps({
-    filters: Object,
-    vehicle: Object,
-    orders: Object,
-    vehicles: Array,
-    can: Object,
-});
+interface VehicleOption {
+    id: number;
+    label: string;
+}
+
+interface OrderRow {
+    id: number;
+    folio: string;
+    status: string;
+    status_label: string;
+    services?: string[];
+    parts?: Array<{ description?: string }>;
+    total?: number | string | null;
+}
+
+const props = defineProps<{
+    filters: {
+        vehicle_id?: string | number;
+        from?: string;
+        to?: string;
+    };
+    vehicle?: {
+        license_plate: string;
+        brand?: string;
+        model?: string;
+        customer?: { name?: string } | null;
+    } | null;
+    orders?: LaravelPaginator | null;
+    vehicles: VehicleOption[];
+    can: {
+        exportPdf?: boolean;
+    };
+}>();
 
 const vehicleId = ref(props.filters.vehicle_id ? String(props.filters.vehicle_id) : '');
 const from = ref(props.filters.from ?? '');
 const to = ref(props.filters.to ?? '');
 
-const apply = () => {
-    router.get(route('reports.vehicle-history'), {
-        vehicle_id: vehicleId.value || undefined,
-        from: from.value || undefined,
-        to: to.value || undefined,
-    }, {
+const headers: DataTableHeader[] = [
+    { title: 'Folio', key: 'folio' },
+    { title: 'Estado', key: 'status', sortable: false },
+    { title: 'Servicios', key: 'services', sortable: false },
+    { title: 'Refacciones', key: 'parts', sortable: false },
+    { title: 'Total', key: 'total', align: 'end', sortable: false },
+];
+
+const vehicleItems = computed(() => [
+    { value: '', title: 'Selecciona unidad' },
+    ...props.vehicles.map((option) => ({ value: String(option.id), title: option.label })),
+]);
+
+const filterParams = computed(() => ({
+    vehicle_id: vehicleId.value || undefined,
+    from: from.value || undefined,
+    to: to.value || undefined,
+}));
+
+watch([vehicleId, from, to], () => {
+    router.get(route('reports.vehicle-history'), filterParams.value, {
         preserveState: true,
         replace: true,
     });
-};
+});
 
-watch([vehicleId, from, to], apply);
+function pdfUrl(): string {
+    return route('reports.vehicle-history.pdf', {
+        vehicle_id: vehicleId.value,
+        from: from.value || undefined,
+        to: to.value || undefined,
+    });
+}
+
+function row(item: unknown): OrderRow {
+    return item as OrderRow;
+}
 </script>
 
 <template>
     <AppLayout title="Historial por unidad">
-        <template #header>
-            <div class="flex items-center justify-between gap-4">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    Historial por unidad
-                </h2>
-                <div class="flex items-center gap-3">
-                    <a
-                        v-if="can?.exportPdf"
-                        :href="route('reports.vehicle-history.pdf', {
-                            vehicle_id: vehicleId,
-                            from: from || undefined,
-                            to: to || undefined,
-                        })"
-                        class="text-sm text-indigo-600 hover:text-indigo-800"
+        <PageHeader
+            title="Historial por unidad"
+            :breadcrumbs="[
+                { title: 'Reportes', href: route('reports.index') },
+                { title: 'Historial', disabled: true },
+            ]"
+        >
+            <template #actions>
+                <v-btn
+                    v-if="can?.exportPdf && vehicleId"
+                    :href="pdfUrl()"
+                    variant="tonal"
+                    prepend-icon="mdi-file-pdf-box"
+                >
+                    Exportar PDF
+                </v-btn>
+                <Link :href="route('reports.index')">
+                    <v-btn variant="text">Volver</v-btn>
+                </Link>
+            </template>
+        </PageHeader>
+
+        <FilterBar>
+            <v-select
+                v-model="vehicleId"
+                :items="vehicleItems"
+                label="Unidad"
+                hide-details
+                style="max-width: 24rem"
+            />
+            <v-text-field v-model="from" type="date" label="Desde" hide-details style="max-width: 11rem" />
+            <v-text-field v-model="to" type="date" label="Hasta" hide-details style="max-width: 11rem" />
+        </FilterBar>
+
+        <PanelCard
+            v-if="vehicle"
+            :title="`${vehicle.license_plate} — ${vehicle.customer?.name ?? ''}`"
+            :subtitle="`${vehicle.brand ?? ''} ${vehicle.model ?? ''}`.trim()"
+            class="mb-4"
+        />
+
+        <PanelCard v-if="orders">
+            <ServerDataTable
+                :headers="headers"
+                :items="orders"
+                route-name="reports.vehicle-history"
+                :filters="filterParams"
+                empty-title="Sin historial"
+                empty-message="No hay órdenes para esta unidad en el periodo."
+            >
+                <template #item.folio="{ item }">
+                    <Link
+                        :href="route('maintenance-orders.show', row(item).id)"
+                        class="text-primary text-decoration-none font-weight-medium"
                     >
-                        Exportar PDF
-                    </a>
-                    <Link :href="route('reports.index')" class="text-sm text-gray-600 hover:text-gray-900">
-                        Volver
+                        {{ row(item).folio }}
                     </Link>
-                </div>
-            </div>
-        </template>
+                </template>
+                <template #item.status="{ item }">
+                    <StatusChip :status="row(item).status" :map="orderStatusMap" />
+                </template>
+                <template #item.services="{ item }">
+                    {{ row(item).services?.join(', ') || '—' }}
+                </template>
+                <template #item.parts="{ item }">
+                    {{ row(item).parts?.map((part) => part.description).join(', ') || '—' }}
+                </template>
+                <template #item.total="{ item }">
+                    <MoneyText
+                        v-if="row(item).total != null"
+                        :amount="row(item).total"
+                    />
+                    <span v-else>—</span>
+                </template>
+            </ServerDataTable>
+        </PanelCard>
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <div class="flex flex-col lg:flex-row gap-4">
-                        <select
-                            v-model="vehicleId"
-                            class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm w-full lg:w-96"
-                        >
-                            <option value="">Selecciona unidad</option>
-                            <option v-for="option in vehicles" :key="option.id" :value="String(option.id)">
-                                {{ option.label }}
-                            </option>
-                        </select>
-                        <input v-model="from" type="date" class="border-gray-300 rounded-md shadow-sm">
-                        <input v-model="to" type="date" class="border-gray-300 rounded-md shadow-sm">
-                    </div>
-                </div>
-
-                <div v-if="vehicle" class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <h3 class="text-lg font-medium text-gray-900">
-                        {{ vehicle.license_plate }} — {{ vehicle.customer?.name }}
-                    </h3>
-                    <p class="text-sm text-gray-500">{{ vehicle.brand }} {{ vehicle.model }}</p>
-                </div>
-
-                <div v-if="orders" class="bg-white shadow-xl sm:rounded-lg p-6 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead>
-                            <tr>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Folio</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Servicios</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Refacciones</th>
-                                <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            <tr v-for="order in orders.data" :key="order.id">
-                                <td class="px-3 py-3 text-sm">
-                                    <Link :href="route('maintenance-orders.show', order.id)" class="text-indigo-600">
-                                        {{ order.folio }}
-                                    </Link>
-                                </td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ order.status_label }}</td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ order.services?.join(', ') || '—' }}</td>
-                                <td class="px-3 py-3 text-sm text-gray-700">
-                                    {{ order.parts?.map(p => p.description).join(', ') || '—' }}
-                                </td>
-                                <td class="px-3 py-3 text-sm text-right text-gray-900">
-                                    {{ order.total != null ? `$${order.total}` : '—' }}
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <div v-if="orders.links?.length > 3" class="mt-4 flex flex-wrap gap-2">
-                        <Link
-                            v-for="link in orders.links"
-                            :key="link.label"
-                            :href="link.url || '#'"
-                            class="px-3 py-1 text-sm rounded border"
-                            :class="link.active ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'"
-                            v-html="link.label"
-                        />
-                    </div>
-                </div>
-
-                <div v-else class="bg-white shadow-xl sm:rounded-lg p-6 text-gray-500">
-                    Selecciona una unidad para ver su historial.
-                </div>
-            </div>
-        </div>
+        <PanelCard v-else>
+            <EmptyState
+                title="Selecciona una unidad"
+                message="Elige una unidad para ver su historial de órdenes."
+                icon="mdi-truck-outline"
+            />
+        </PanelCard>
     </AppLayout>
 </template>

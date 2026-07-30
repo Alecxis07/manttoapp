@@ -1,119 +1,182 @@
-<script setup>
+<script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import DateText from '@/Components/Ui/DateText.vue';
+import FilterBar from '@/Components/Ui/FilterBar.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import ServerDataTable from '@/Components/Ui/ServerDataTable.vue';
+import type { DataTableHeader, LaravelPaginator } from '@/Components/Ui/ServerDataTable.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import { quotationStatusMap } from '@/Components/Ui/statusMaps';
 
-const props = defineProps({
-    quotations: Object,
-    filters: Object,
-    statuses: Array,
-    status_counts: Object,
-    conversion: Object,
-    can: Object,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface QuotationRow {
+    id: number;
+    folio: string;
+    version: number | string;
+    status: string;
+    status_label: string;
+    created_at?: string | null;
+    total?: number | string | null;
+    customer?: { name?: string } | null;
+    vehicle?: { license_plate?: string } | null;
+}
+
+const props = defineProps<{
+    quotations: LaravelPaginator;
+    filters: {
+        from?: string;
+        to?: string;
+        status?: string;
+    };
+    statuses: SelectOption[];
+    status_counts?: Record<string, number>;
+    conversion: {
+        total_issued: number;
+        accepted: number;
+        converted_to_order: number;
+        rate: number | string;
+    };
+    can: {
+        export?: boolean;
+        viewFull?: boolean;
+    };
+}>();
 
 const from = ref(props.filters.from ?? '');
 const to = ref(props.filters.to ?? '');
 const status = ref(props.filters.status ?? '');
 
+const headers = computed((): DataTableHeader[] => {
+    const cols: DataTableHeader[] = [
+        { title: 'Folio', key: 'folio' },
+        { title: 'Cliente', key: 'customer' },
+        { title: 'Unidad', key: 'vehicle' },
+        { title: 'Estado', key: 'status', sortable: false },
+        { title: 'Fecha', key: 'created_at' },
+    ];
+
+    if (props.can?.viewFull) {
+        cols.push({ title: 'Total', key: 'total', align: 'end', sortable: false });
+    }
+
+    return cols;
+});
+
+const statusItems = computed(() => [
+    { value: '', title: 'Todos los estatus' },
+    ...props.statuses.map((option) => ({ value: option.value, title: option.label })),
+]);
+
+const filterParams = computed(() => ({
+    from: from.value || undefined,
+    to: to.value || undefined,
+    status: status.value || undefined,
+}));
+
 watch([from, to, status], () => {
-    router.get(route('reports.quotations'), {
-        from: from.value || undefined,
-        to: to.value || undefined,
-        status: status.value || undefined,
-    }, {
+    router.get(route('reports.quotations'), filterParams.value, {
         preserveState: true,
         replace: true,
     });
 });
 
-const exportUrl = () => route('reports.quotations', {
-    from: from.value || undefined,
-    to: to.value || undefined,
-    status: status.value || undefined,
-    export: 1,
-});
+function exportUrl(): string {
+    return route('reports.quotations', {
+        ...filterParams.value,
+        export: 1,
+    });
+}
+
+function row(item: unknown): QuotationRow {
+    return item as QuotationRow;
+}
 </script>
 
 <template>
     <AppLayout title="Cotizaciones por estado">
-        <template #header>
-            <div class="flex items-center justify-between gap-4">
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                    Cotizaciones por estado
-                </h2>
-                <div class="flex items-center gap-3">
-                    <a v-if="can?.export" :href="exportUrl()" class="text-sm text-indigo-600 hover:text-indigo-800">
-                        Exportar CSV
-                    </a>
-                    <Link :href="route('reports.index')" class="text-sm text-gray-600 hover:text-gray-900">
-                        Volver
+        <PageHeader
+            title="Cotizaciones por estado"
+            :breadcrumbs="[
+                { title: 'Reportes', href: route('reports.index') },
+                { title: 'Cotizaciones', disabled: true },
+            ]"
+        >
+            <template #actions>
+                <v-btn
+                    v-if="can?.export"
+                    :href="exportUrl()"
+                    variant="tonal"
+                    prepend-icon="mdi-download"
+                >
+                    Exportar CSV
+                </v-btn>
+                <Link :href="route('reports.index')">
+                    <v-btn variant="text">Volver</v-btn>
+                </Link>
+            </template>
+        </PageHeader>
+
+        <FilterBar>
+            <v-text-field v-model="from" type="date" label="Desde" hide-details style="max-width: 11rem" />
+            <v-text-field v-model="to" type="date" label="Hasta" hide-details style="max-width: 11rem" />
+            <v-select
+                v-model="status"
+                :items="statusItems"
+                label="Estatus"
+                hide-details
+                style="max-width: 12rem"
+            />
+        </FilterBar>
+
+        <v-alert type="info" variant="tonal" class="mb-4">
+            Emitidas: {{ conversion.total_issued }}
+            · Aceptadas: {{ conversion.accepted }}
+            · Convertidas a orden: {{ conversion.converted_to_order }}
+            · Tasa conversión: {{ conversion.rate }}%
+        </v-alert>
+
+        <PanelCard>
+            <ServerDataTable
+                :headers="headers"
+                :items="quotations"
+                route-name="reports.quotations"
+                :filters="filterParams"
+                empty-title="Sin cotizaciones"
+                empty-message="No hay cotizaciones para los filtros seleccionados."
+            >
+                <template #item.folio="{ item }">
+                    <Link
+                        :href="route('quotations.show', row(item).id)"
+                        class="text-primary text-decoration-none font-weight-medium"
+                    >
+                        {{ row(item).folio }}
+                        <span class="text-medium-emphasis">v{{ row(item).version }}</span>
                     </Link>
-                </div>
-            </div>
-        </template>
-
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div class="bg-white shadow-xl sm:rounded-lg p-6">
-                    <div class="flex flex-col lg:flex-row gap-4 mb-4">
-                        <input v-model="from" type="date" class="border-gray-300 rounded-md shadow-sm">
-                        <input v-model="to" type="date" class="border-gray-300 rounded-md shadow-sm">
-                        <select v-model="status" class="border-gray-300 rounded-md shadow-sm">
-                            <option value="">Todos los estatus</option>
-                            <option v-for="option in statuses" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                            </option>
-                        </select>
-                    </div>
-                    <p class="text-sm text-gray-600">
-                        Emitidas: {{ conversion.total_issued }}
-                        · Aceptadas: {{ conversion.accepted }}
-                        · Convertidas a orden: {{ conversion.converted_to_order }}
-                        · Tasa conversión: {{ conversion.rate }}%
-                    </p>
-                </div>
-
-                <div class="bg-white shadow-xl sm:rounded-lg p-6 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead>
-                            <tr>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Folio</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unidad</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
-                                <th v-if="can?.viewFull" class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            <tr v-for="quotation in quotations.data" :key="quotation.id">
-                                <td class="px-3 py-3 text-sm">
-                                    <Link :href="route('quotations.show', quotation.id)" class="text-indigo-600">
-                                        {{ quotation.folio }}
-                                        <span class="text-gray-500">v{{ quotation.version }}</span>
-                                    </Link>
-                                </td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ quotation.customer?.name }}</td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ quotation.vehicle?.license_plate }}</td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ quotation.status_label }}</td>
-                                <td class="px-3 py-3 text-sm text-gray-700">{{ quotation.created_at }}</td>
-                                <td v-if="can?.viewFull" class="px-3 py-3 text-sm text-right">${{ quotation.total }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <div v-if="quotations.links?.length > 3" class="mt-4 flex flex-wrap gap-2">
-                        <Link
-                            v-for="link in quotations.links"
-                            :key="link.label"
-                            :href="link.url || '#'"
-                            class="px-3 py-1 text-sm rounded border"
-                            :class="link.active ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'"
-                            v-html="link.label"
-                        />
-                    </div>
-                </div>
-            </div>
-        </div>
+                </template>
+                <template #item.customer="{ item }">
+                    {{ row(item).customer?.name }}
+                </template>
+                <template #item.vehicle="{ item }">
+                    {{ row(item).vehicle?.license_plate }}
+                </template>
+                <template #item.status="{ item }">
+                    <StatusChip :status="row(item).status" :map="quotationStatusMap" />
+                </template>
+                <template #item.created_at="{ item }">
+                    <DateText :value="row(item).created_at" />
+                </template>
+                <template v-if="can?.viewFull" #item.total="{ item }">
+                    <MoneyText :amount="row(item).total" />
+                </template>
+            </ServerDataTable>
+        </PanelCard>
     </AppLayout>
 </template>

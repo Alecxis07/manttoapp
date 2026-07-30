@@ -1,26 +1,100 @@
-<script setup>
-import { Link, useForm } from '@inertiajs/vue3';
+<script setup lang="ts">
 import { computed, ref } from 'vue';
+import { Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
+import ConfirmDialog from '@/Components/Ui/ConfirmDialog.vue';
+import DateText from '@/Components/Ui/DateText.vue';
+import DescriptionList from '@/Components/Ui/DescriptionList.vue';
+import EmptyState from '@/Components/Ui/EmptyState.vue';
+import MoneyText from '@/Components/Ui/MoneyText.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
+import StatusChip from '@/Components/Ui/StatusChip.vue';
+import TabsCard from '@/Components/Ui/TabsCard.vue';
+import { orderStatusMap } from '@/Components/Ui/statusMaps';
+import type { TabItem } from '@/Components/Ui/TabsCard.vue';
 
-const props = defineProps({
-    order: Object,
-    items: Array,
-    parts: Array,
-    statusHistory: Array,
-    attachments: Array,
-    services: Array,
-    partsCatalog: Array,
-    technicians: Array,
-    statuses: Array,
-    allowedTransitions: Array,
-    can: Object,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface CatalogOption {
+    id: number;
+    code: string;
+    description: string;
+    base_price: number | string;
+}
+
+interface LineItem {
+    id: number;
+    description: string;
+    quantity: number | string;
+    unit_price: number | string;
+    discount: number | string;
+    line_total: number | string;
+}
+
+interface StatusHistoryEntry {
+    id: number;
+    from_status_label?: string | null;
+    to_status_label: string;
+    notes?: string | null;
+    created_at: string;
+    user?: { name?: string } | null;
+}
+
+interface AttachmentRow {
+    id: number;
+    original_name: string;
+    mime_type?: string;
+    uploaded_by?: { name?: string } | null;
+}
+
+interface OrderDetail {
+    id: number;
+    folio: string;
+    status: string;
+    status_label: string;
+    type_label: string;
+    reason?: string;
+    mileage?: number;
+    diagnosis?: string | null;
+    technical_notes?: string | null;
+    assigned_user_id?: number | null;
+    subtotal: number | string;
+    discount_total: number | string;
+    tax_total: number | string;
+    total: number | string;
+    tax_rate: number | string;
+    customer?: { name?: string } | null;
+    vehicle?: {
+        license_plate?: string;
+        brand?: string;
+        model?: string;
+    } | null;
+    assignee?: { name?: string } | null;
+}
+
+const props = defineProps<{
+    order: OrderDetail;
+    items: LineItem[];
+    parts: LineItem[];
+    statusHistory: StatusHistoryEntry[];
+    attachments: AttachmentRow[];
+    services: CatalogOption[];
+    partsCatalog: CatalogOption[];
+    technicians: Array<{ id: number; name: string }>;
+    statuses: SelectOption[];
+    allowedTransitions: SelectOption[];
+    can: {
+        changeStatus?: boolean;
+        reopen?: boolean;
+        diagnose?: boolean;
+        addItems?: boolean;
+        attach?: boolean;
+    };
+}>();
 
 const transitionForm = useForm({
     status: '',
@@ -57,72 +131,168 @@ const reopenForm = useForm({
 });
 
 const attachmentForm = useForm({
-    file: null,
+    file: null as File | null,
 });
+
+const fileInputKey = ref(0);
+const confirmReopen = ref(false);
+const activeTab = ref('overview');
 
 const showCancelReason = computed(() => transitionForm.status === 'cancelled');
 
-const onServiceSelect = () => {
-    const selected = props.services.find((s) => String(s.id) === String(itemForm.service_catalog_id));
+const tabs: TabItem[] = [
+    { key: 'overview', title: 'Resumen', icon: 'mdi-information-outline' },
+    { key: 'history', title: 'Historial', icon: 'mdi-history' },
+    { key: 'diagnosis', title: 'Diagnóstico', icon: 'mdi-stethoscope' },
+    { key: 'lines', title: 'Partidas', icon: 'mdi-format-list-bulleted' },
+    { key: 'attachments', title: 'Evidencias', icon: 'mdi-paperclip' },
+];
+
+const summaryItems = computed(() => [
+    { key: 'customer', label: 'Cliente', value: props.order.customer?.name },
+    {
+        key: 'vehicle',
+        label: 'Unidad',
+        value: [
+            props.order.vehicle?.license_plate,
+            props.order.vehicle?.brand,
+            props.order.vehicle?.model,
+        ]
+            .filter(Boolean)
+            .join(' — '),
+    },
+    { key: 'reason', label: 'Motivo', value: props.order.reason },
+    { key: 'mileage', label: 'Kilometraje', value: props.order.mileage },
+    { key: 'assignee', label: 'Responsable', value: props.order.assignee?.name || 'Sin asignar' },
+]);
+
+const transitionItems = [
+    { title: 'Seleccione…', value: '' },
+    ...props.allowedTransitions.map((option) => ({
+        title: option.label,
+        value: option.value,
+    })),
+];
+
+const technicianItems = [
+    { title: 'Sin asignar', value: '' },
+    ...props.technicians.map((user) => ({
+        title: user.name,
+        value: String(user.id),
+    })),
+];
+
+const serviceItems = [
+    { title: 'Manual…', value: '' },
+    ...props.services.map((service) => ({
+        title: `${service.code} — ${service.description}`,
+        value: String(service.id),
+    })),
+];
+
+const partCatalogItems = [
+    { title: 'Manual…', value: '' },
+    ...props.partsCatalog.map((part) => ({
+        title: `${part.code} — ${part.description}`,
+        value: String(part.id),
+    })),
+];
+
+function onServiceSelect(): void {
+    const selected = props.services.find(
+        (service) => String(service.id) === String(itemForm.service_catalog_id),
+    );
+
     if (selected) {
         itemForm.description = selected.description;
-        itemForm.unit_price = selected.base_price;
+        itemForm.unit_price = Number(selected.base_price);
     }
-};
+}
 
-const onPartSelect = () => {
-    const selected = props.partsCatalog.find((p) => String(p.id) === String(partForm.part_catalog_id));
+function onPartSelect(): void {
+    const selected = props.partsCatalog.find(
+        (part) => String(part.id) === String(partForm.part_catalog_id),
+    );
+
     if (selected) {
         partForm.description = selected.description;
-        partForm.unit_price = selected.base_price;
+        partForm.unit_price = Number(selected.base_price);
     }
-};
+}
 
-const submitTransition = () => {
+function submitTransition(): void {
     transitionForm.post(route('maintenance-orders.transition', props.order.id), {
         preserveScroll: true,
         onSuccess: () => transitionForm.reset('notes', 'cancellation_reason'),
     });
-};
+}
 
-const submitDiagnosis = () => {
-    diagnosisForm.transform((data) => ({
-        ...data,
-        assigned_user_id: data.assigned_user_id ? Number(data.assigned_user_id) : null,
-    })).post(route('maintenance-orders.diagnose', props.order.id), { preserveScroll: true });
-};
+function submitDiagnosis(): void {
+    diagnosisForm
+        .transform((data) => ({
+            ...data,
+            assigned_user_id: data.assigned_user_id ? Number(data.assigned_user_id) : null,
+        }))
+        .post(route('maintenance-orders.diagnose', props.order.id), { preserveScroll: true });
+}
 
-const submitItem = () => {
-    itemForm.transform((data) => ({
-        ...data,
-        service_catalog_id: data.service_catalog_id ? Number(data.service_catalog_id) : null,
-        quantity: Number(data.quantity),
-        unit_price: Number(data.unit_price),
-        discount: Number(data.discount || 0),
-    })).post(route('maintenance-orders.items.store', props.order.id), {
+function submitItem(): void {
+    itemForm
+        .transform((data) => ({
+            ...data,
+            service_catalog_id: data.service_catalog_id ? Number(data.service_catalog_id) : null,
+            quantity: Number(data.quantity),
+            unit_price: Number(data.unit_price),
+            discount: Number(data.discount || 0),
+        }))
+        .post(route('maintenance-orders.items.store', props.order.id), {
+            preserveScroll: true,
+            onSuccess: () =>
+                itemForm.reset(
+                    'service_catalog_id',
+                    'description',
+                    'quantity',
+                    'unit_price',
+                    'discount',
+                    'notes',
+                ),
+        });
+}
+
+function submitPart(): void {
+    partForm
+        .transform((data) => ({
+            ...data,
+            part_catalog_id: data.part_catalog_id ? Number(data.part_catalog_id) : null,
+            quantity: Number(data.quantity),
+            unit_price: Number(data.unit_price),
+            discount: Number(data.discount || 0),
+        }))
+        .post(route('maintenance-orders.parts.store', props.order.id), {
+            preserveScroll: true,
+            onSuccess: () =>
+                partForm.reset(
+                    'part_catalog_id',
+                    'description',
+                    'quantity',
+                    'unit_price',
+                    'discount',
+                    'notes',
+                ),
+        });
+}
+
+function submitReopen(): void {
+    reopenForm.post(route('maintenance-orders.reopen', props.order.id), {
         preserveScroll: true,
-        onSuccess: () => itemForm.reset('service_catalog_id', 'description', 'quantity', 'unit_price', 'discount', 'notes'),
+        onSuccess: () => {
+            confirmReopen.value = false;
+            reopenForm.reset();
+        },
     });
-};
+}
 
-const submitPart = () => {
-    partForm.transform((data) => ({
-        ...data,
-        part_catalog_id: data.part_catalog_id ? Number(data.part_catalog_id) : null,
-        quantity: Number(data.quantity),
-        unit_price: Number(data.unit_price),
-        discount: Number(data.discount || 0),
-    })).post(route('maintenance-orders.parts.store', props.order.id), {
-        preserveScroll: true,
-        onSuccess: () => partForm.reset('part_catalog_id', 'description', 'quantity', 'unit_price', 'discount', 'notes'),
-    });
-};
-
-const submitReopen = () => {
-    reopenForm.post(route('maintenance-orders.reopen', props.order.id), { preserveScroll: true });
-};
-
-const submitAttachment = () => {
+function submitAttachment(): void {
     attachmentForm.post(route('maintenance-orders.attachments.store', props.order.id), {
         forceFormData: true,
         preserveScroll: true,
@@ -131,328 +301,397 @@ const submitAttachment = () => {
             fileInputKey.value += 1;
         },
     });
-};
+}
 
-const fileInputKey = ref(0);
-const onFileChange = (event) => {
-    attachmentForm.file = event.target.files[0] ?? null;
-};
 </script>
 
 <template>
     <AppLayout :title="order.folio">
-        <template #header>
-            <div class="flex items-center justify-between gap-4 flex-wrap">
-                <div>
-                    <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                        {{ order.folio }}
-                    </h2>
-                    <p class="text-sm text-gray-500 mt-1">
-                        {{ order.status_label }} · {{ order.type_label }}
+        <PageHeader :title="order.folio" :subtitle="order.type_label">
+            <template #actions>
+                <StatusChip :status="order.status" :map="orderStatusMap" />
+                <Link :href="route('maintenance-orders.index')" class="text-decoration-none">
+                    <v-btn variant="text" prepend-icon="mdi-arrow-left">
+                        Volver al listado
+                    </v-btn>
+                </Link>
+            </template>
+        </PageHeader>
+
+        <TabsCard v-model="activeTab" :tabs="tabs" class="mb-4">
+            <template #overview>
+                <DescriptionList :items="summaryItems" class="mb-6" />
+
+                <v-alert type="info" variant="tonal" density="comfortable" class="mb-4">
+                    Subtotal <MoneyText :amount="order.subtotal" />
+                    · Desc. <MoneyText :amount="order.discount_total" />
+                    · IVA ({{ order.tax_rate }}%) <MoneyText :amount="order.tax_total" />
+                    · <strong>Total <MoneyText :amount="order.total" /></strong>
+                </v-alert>
+
+                <PanelCard
+                    v-if="can.changeStatus && allowedTransitions.length"
+                    title="Cambiar estado"
+                    class="mb-4"
+                >
+                    <v-form @submit.prevent="submitTransition">
+                        <v-row>
+                            <v-col cols="12" md="6">
+                                <v-select
+                                    v-model="transitionForm.status"
+                                    :items="transitionItems"
+                                    label="Nuevo estado"
+                                    :error-messages="transitionForm.errors.status"
+                                />
+                            </v-col>
+                            <v-col cols="12" md="6">
+                                <v-text-field
+                                    v-model="transitionForm.notes"
+                                    label="Notas"
+                                    :error-messages="transitionForm.errors.notes"
+                                />
+                            </v-col>
+                            <v-col v-if="showCancelReason" cols="12">
+                                <v-textarea
+                                    v-model="transitionForm.cancellation_reason"
+                                    label="Motivo de cancelación"
+                                    rows="2"
+                                    :error-messages="transitionForm.errors.cancellation_reason"
+                                />
+                            </v-col>
+                        </v-row>
+                        <v-btn
+                            type="submit"
+                            color="primary"
+                            variant="flat"
+                            :loading="transitionForm.processing"
+                            :disabled="!transitionForm.status"
+                        >
+                            Aplicar transición
+                        </v-btn>
+                    </v-form>
+                </PanelCard>
+
+                <PanelCard
+                    v-if="can.reopen && order.status === 'delivered'"
+                    title="Reabrir orden"
+                >
+                    <v-textarea
+                        v-model="reopenForm.reason"
+                        label="Justificación"
+                        rows="2"
+                        class="mb-3"
+                        :error-messages="reopenForm.errors.reason"
+                    />
+                    <v-btn
+                        color="warning"
+                        variant="flat"
+                        :loading="reopenForm.processing"
+                        @click="confirmReopen = true"
+                    >
+                        Reabrir a En progreso
+                    </v-btn>
+                </PanelCard>
+            </template>
+
+            <template #history>
+                <v-timeline v-if="statusHistory.length" density="compact" side="end">
+                    <v-timeline-item
+                        v-for="entry in statusHistory"
+                        :key="entry.id"
+                        dot-color="primary"
+                        size="small"
+                    >
+                        <div class="text-subtitle-2 font-weight-medium">
+                            <span v-if="entry.from_status_label">{{ entry.from_status_label }} → </span>
+                            {{ entry.to_status_label }}
+                        </div>
+                        <div class="text-caption text-medium-emphasis">
+                            {{ entry.user?.name || 'Sistema' }} ·
+                            <DateText :value="entry.created_at" time-style="short" />
+                        </div>
+                        <p v-if="entry.notes" class="text-body-2 mt-1 mb-0">
+                            {{ entry.notes }}
+                        </p>
+                    </v-timeline-item>
+                </v-timeline>
+                <EmptyState
+                    v-else
+                    title="Sin historial"
+                    message="Aún no hay cambios de estado registrados."
+                    icon="mdi-history"
+                />
+            </template>
+
+            <template #diagnosis>
+                <v-form v-if="can.diagnose" @submit.prevent="submitDiagnosis">
+                    <v-textarea
+                        v-model="diagnosisForm.diagnosis"
+                        label="Diagnóstico"
+                        rows="4"
+                        class="mb-3"
+                        :error-messages="diagnosisForm.errors.diagnosis"
+                    />
+                    <v-textarea
+                        v-model="diagnosisForm.technical_notes"
+                        label="Notas técnicas"
+                        rows="2"
+                        class="mb-3"
+                    />
+                    <v-select
+                        v-model="diagnosisForm.assigned_user_id"
+                        :items="technicianItems"
+                        label="Responsable"
+                        class="mb-3"
+                    />
+                    <v-btn
+                        type="submit"
+                        color="primary"
+                        variant="flat"
+                        :loading="diagnosisForm.processing"
+                    >
+                        Guardar diagnóstico
+                    </v-btn>
+                </v-form>
+                <div v-else-if="order.diagnosis">
+                    <p class="text-body-1 text-pre-wrap mb-0">{{ order.diagnosis }}</p>
+                    <p v-if="order.technical_notes" class="text-body-2 text-medium-emphasis mt-3 mb-0">
+                        {{ order.technical_notes }}
                     </p>
                 </div>
-                <Link :href="route('maintenance-orders.index')">
-                    <SecondaryButton type="button">Volver al listado</SecondaryButton>
-                </Link>
-            </div>
-        </template>
+                <EmptyState
+                    v-else
+                    title="Sin diagnóstico"
+                    message="Todavía no se ha capturado un diagnóstico para esta orden."
+                    icon="mdi-stethoscope"
+                />
+            </template>
 
-        <div class="py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-                <div
-                    v-if="$page.props.flash?.success"
-                    class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded"
-                >
-                    {{ $page.props.flash.success }}
-                </div>
+            <template #lines>
+                <div class="mb-8">
+                    <div class="d-flex align-center justify-space-between mb-3">
+                        <h3 class="text-subtitle-1 font-weight-bold mb-0">Servicios</h3>
+                    </div>
+                    <v-table density="comfortable" class="mb-4">
+                        <thead>
+                            <tr>
+                                <th>Descripción</th>
+                                <th>Cant.</th>
+                                <th>P. unit.</th>
+                                <th>Desc.</th>
+                                <th class="text-end">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="item in items" :key="item.id">
+                                <td>{{ item.description }}</td>
+                                <td>{{ item.quantity }}</td>
+                                <td><MoneyText :amount="item.unit_price" /></td>
+                                <td><MoneyText :amount="item.discount" /></td>
+                                <td class="text-end"><MoneyText :amount="item.line_total" /></td>
+                            </tr>
+                            <tr v-if="!items.length">
+                                <td colspan="5" class="text-medium-emphasis text-center py-6">
+                                    Sin servicios.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </v-table>
 
-                <div class="bg-white shadow sm:rounded-lg p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <p class="text-xs uppercase text-gray-500">Cliente</p>
-                        <p class="font-medium">{{ order.customer?.name }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs uppercase text-gray-500">Unidad</p>
-                        <p class="font-medium">
-                            {{ order.vehicle?.license_plate }} —
-                            {{ order.vehicle?.brand }} {{ order.vehicle?.model }}
-                        </p>
-                    </div>
-                    <div>
-                        <p class="text-xs uppercase text-gray-500">Motivo</p>
-                        <p>{{ order.reason }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs uppercase text-gray-500">Kilometraje</p>
-                        <p>{{ order.mileage }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs uppercase text-gray-500">Responsable</p>
-                        <p>{{ order.assignee?.name || 'Sin asignar' }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs uppercase text-gray-500">Totales</p>
-                        <p class="text-sm">
-                            Subtotal ${{ Number(order.subtotal).toFixed(2) }} ·
-                            Desc. ${{ Number(order.discount_total).toFixed(2) }} ·
-                            IVA ({{ order.tax_rate }}%) ${{ Number(order.tax_total).toFixed(2) }} ·
-                            <strong>Total ${{ Number(order.total).toFixed(2) }}</strong>
-                        </p>
-                    </div>
-                </div>
-
-                <!-- Timeline -->
-                <div class="bg-white shadow sm:rounded-lg p-6">
-                    <h3 class="font-semibold text-lg mb-4">Historial de estados</h3>
-                    <ol class="space-y-3">
-                        <li
-                            v-for="entry in statusHistory"
-                            :key="entry.id"
-                            class="border-l-2 border-indigo-200 pl-4"
-                        >
-                            <p class="text-sm font-medium">
-                                <span v-if="entry.from_status_label">{{ entry.from_status_label }} → </span>
-                                {{ entry.to_status_label }}
-                            </p>
-                            <p class="text-xs text-gray-500">
-                                {{ entry.user?.name || 'Sistema' }} · {{ entry.created_at }}
-                            </p>
-                            <p v-if="entry.notes" class="text-sm text-gray-600 mt-1">{{ entry.notes }}</p>
-                        </li>
-                    </ol>
-                </div>
-
-                <!-- Transition -->
-                <div v-if="can.changeStatus && allowedTransitions.length" class="bg-white shadow sm:rounded-lg p-6">
-                    <h3 class="font-semibold text-lg mb-4">Cambiar estado</h3>
-                    <form class="space-y-3" @submit.prevent="submitTransition">
-                        <div>
-                            <InputLabel value="Nuevo estado" />
-                            <select
-                                v-model="transitionForm.status"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                            >
-                                <option value="">Seleccione…</option>
-                                <option
-                                    v-for="option in allowedTransitions"
-                                    :key="option.value"
-                                    :value="option.value"
+                    <v-form
+                        v-if="can.addItems"
+                        class="border-t pt-4"
+                        @submit.prevent="submitItem"
+                    >
+                        <v-row dense>
+                            <v-col cols="12" md="4">
+                                <v-select
+                                    v-model="itemForm.service_catalog_id"
+                                    :items="serviceItems"
+                                    label="Catálogo"
+                                    @update:model-value="onServiceSelect"
+                                />
+                            </v-col>
+                            <v-col cols="12" md="4">
+                                <v-text-field
+                                    v-model="itemForm.description"
+                                    label="Descripción"
+                                    :error-messages="itemForm.errors.description"
+                                />
+                            </v-col>
+                            <v-col cols="6" md="2">
+                                <v-text-field
+                                    v-model.number="itemForm.quantity"
+                                    type="number"
+                                    step="0.01"
+                                    label="Cant."
+                                />
+                            </v-col>
+                            <v-col cols="6" md="2">
+                                <v-text-field
+                                    v-model.number="itemForm.unit_price"
+                                    type="number"
+                                    step="0.01"
+                                    label="P. unit."
+                                />
+                            </v-col>
+                            <v-col cols="12">
+                                <v-btn
+                                    type="submit"
+                                    color="primary"
+                                    variant="flat"
+                                    :loading="itemForm.processing"
                                 >
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                            <InputError :message="transitionForm.errors.status" class="mt-2" />
-                        </div>
-                        <div v-if="showCancelReason">
-                            <InputLabel value="Motivo de cancelación" />
-                            <textarea
-                                v-model="transitionForm.cancellation_reason"
-                                rows="2"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                            />
-                            <InputError :message="transitionForm.errors.cancellation_reason" class="mt-2" />
-                        </div>
-                        <div>
-                            <InputLabel value="Notas" />
-                            <TextInput v-model="transitionForm.notes" class="mt-1 block w-full" />
-                        </div>
-                        <PrimaryButton :disabled="transitionForm.processing || !transitionForm.status">
-                            Aplicar transición
-                        </PrimaryButton>
-                    </form>
+                                    Agregar servicio
+                                </v-btn>
+                                <div
+                                    v-if="(itemForm.errors as Record<string, string>).order"
+                                    class="text-error text-caption mt-2"
+                                >
+                                    {{ (itemForm.errors as Record<string, string>).order }}
+                                </div>
+                            </v-col>
+                        </v-row>
+                    </v-form>
                 </div>
 
-                <!-- Reopen -->
-                <div v-if="can.reopen && order.status === 'delivered'" class="bg-white shadow sm:rounded-lg p-6">
-                    <h3 class="font-semibold text-lg mb-4">Reabrir orden</h3>
-                    <form class="space-y-3" @submit.prevent="submitReopen">
-                        <div>
-                            <InputLabel value="Justificación" />
-                            <textarea
-                                v-model="reopenForm.reason"
-                                rows="2"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                            />
-                            <InputError :message="reopenForm.errors.reason" class="mt-2" />
-                        </div>
-                        <PrimaryButton :disabled="reopenForm.processing">Reabrir a En progreso</PrimaryButton>
-                    </form>
-                </div>
-
-                <!-- Diagnosis -->
-                <div v-if="can.diagnose" class="bg-white shadow sm:rounded-lg p-6">
-                    <h3 class="font-semibold text-lg mb-4">Diagnóstico</h3>
-                    <form class="space-y-3" @submit.prevent="submitDiagnosis">
-                        <div>
-                            <InputLabel value="Diagnóstico" />
-                            <textarea
-                                v-model="diagnosisForm.diagnosis"
-                                rows="4"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                            />
-                            <InputError :message="diagnosisForm.errors.diagnosis" class="mt-2" />
-                        </div>
-                        <div>
-                            <InputLabel value="Notas técnicas" />
-                            <textarea
-                                v-model="diagnosisForm.technical_notes"
-                                rows="2"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                            />
-                        </div>
-                        <div>
-                            <InputLabel value="Responsable" />
-                            <select
-                                v-model="diagnosisForm.assigned_user_id"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                            >
-                                <option value="">Sin asignar</option>
-                                <option v-for="user in technicians" :key="user.id" :value="String(user.id)">
-                                    {{ user.name }}
-                                </option>
-                            </select>
-                        </div>
-                        <PrimaryButton :disabled="diagnosisForm.processing">Guardar diagnóstico</PrimaryButton>
-                    </form>
-                </div>
-                <div v-else-if="order.diagnosis" class="bg-white shadow sm:rounded-lg p-6">
-                    <h3 class="font-semibold text-lg mb-2">Diagnóstico</h3>
-                    <p class="whitespace-pre-wrap">{{ order.diagnosis }}</p>
-                </div>
-
-                <!-- Items -->
-                <div class="bg-white shadow sm:rounded-lg p-6 space-y-4">
-                    <h3 class="font-semibold text-lg">Servicios</h3>
-                    <table class="min-w-full text-sm">
+                <div>
+                    <h3 class="text-subtitle-1 font-weight-bold mb-3">Refacciones</h3>
+                    <v-table density="comfortable" class="mb-4">
                         <thead>
-                            <tr class="text-left text-xs text-gray-500 uppercase">
-                                <th class="py-2">Descripción</th>
-                                <th class="py-2">Cant.</th>
-                                <th class="py-2">P. unit.</th>
-                                <th class="py-2">Desc.</th>
-                                <th class="py-2 text-right">Total</th>
+                            <tr>
+                                <th>Descripción</th>
+                                <th>Cant.</th>
+                                <th>P. unit.</th>
+                                <th>Desc.</th>
+                                <th class="text-end">Total</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="item in items" :key="item.id" class="border-t">
-                                <td class="py-2">{{ item.description }}</td>
-                                <td class="py-2">{{ item.quantity }}</td>
-                                <td class="py-2">${{ Number(item.unit_price).toFixed(2) }}</td>
-                                <td class="py-2">${{ Number(item.discount).toFixed(2) }}</td>
-                                <td class="py-2 text-right">${{ Number(item.line_total).toFixed(2) }}</td>
+                            <tr v-for="part in parts" :key="part.id">
+                                <td>{{ part.description }}</td>
+                                <td>{{ part.quantity }}</td>
+                                <td><MoneyText :amount="part.unit_price" /></td>
+                                <td><MoneyText :amount="part.discount" /></td>
+                                <td class="text-end"><MoneyText :amount="part.line_total" /></td>
+                            </tr>
+                            <tr v-if="!parts.length">
+                                <td colspan="5" class="text-medium-emphasis text-center py-6">
+                                    Sin refacciones.
+                                </td>
                             </tr>
                         </tbody>
-                    </table>
+                    </v-table>
 
-                    <form v-if="can.addItems" class="grid grid-cols-1 md:grid-cols-6 gap-3 border-t pt-4" @submit.prevent="submitItem">
-                        <div class="md:col-span-2">
-                            <InputLabel value="Catálogo" />
-                            <select
-                                v-model="itemForm.service_catalog_id"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                                @change="onServiceSelect"
-                            >
-                                <option value="">Manual…</option>
-                                <option v-for="service in services" :key="service.id" :value="String(service.id)">
-                                    {{ service.code }} — {{ service.description }}
-                                </option>
-                            </select>
-                        </div>
-                        <div class="md:col-span-2">
-                            <InputLabel value="Descripción" />
-                            <TextInput v-model="itemForm.description" class="mt-1 block w-full" />
-                            <InputError :message="itemForm.errors.description" class="mt-1" />
-                        </div>
-                        <div>
-                            <InputLabel value="Cant." />
-                            <TextInput v-model="itemForm.quantity" type="number" step="0.01" class="mt-1 block w-full" />
-                        </div>
-                        <div>
-                            <InputLabel value="P. unit." />
-                            <TextInput v-model="itemForm.unit_price" type="number" step="0.01" class="mt-1 block w-full" />
-                        </div>
-                        <div class="md:col-span-6">
-                            <PrimaryButton :disabled="itemForm.processing">Agregar servicio</PrimaryButton>
-                            <InputError :message="itemForm.errors.order" class="mt-2" />
-                        </div>
-                    </form>
+                    <v-form
+                        v-if="can.addItems"
+                        class="border-t pt-4"
+                        @submit.prevent="submitPart"
+                    >
+                        <v-row dense>
+                            <v-col cols="12" md="4">
+                                <v-select
+                                    v-model="partForm.part_catalog_id"
+                                    :items="partCatalogItems"
+                                    label="Catálogo"
+                                    @update:model-value="onPartSelect"
+                                />
+                            </v-col>
+                            <v-col cols="12" md="4">
+                                <v-text-field
+                                    v-model="partForm.description"
+                                    label="Descripción"
+                                />
+                            </v-col>
+                            <v-col cols="6" md="2">
+                                <v-text-field
+                                    v-model.number="partForm.quantity"
+                                    type="number"
+                                    step="0.01"
+                                    label="Cant."
+                                />
+                            </v-col>
+                            <v-col cols="6" md="2">
+                                <v-text-field
+                                    v-model.number="partForm.unit_price"
+                                    type="number"
+                                    step="0.01"
+                                    label="P. unit."
+                                />
+                            </v-col>
+                            <v-col cols="12">
+                                <v-btn
+                                    type="submit"
+                                    color="primary"
+                                    variant="flat"
+                                    :loading="partForm.processing"
+                                >
+                                    Agregar refacción
+                                </v-btn>
+                            </v-col>
+                        </v-row>
+                    </v-form>
                 </div>
+            </template>
 
-                <!-- Parts -->
-                <div class="bg-white shadow sm:rounded-lg p-6 space-y-4">
-                    <h3 class="font-semibold text-lg">Refacciones</h3>
-                    <table class="min-w-full text-sm">
-                        <thead>
-                            <tr class="text-left text-xs text-gray-500 uppercase">
-                                <th class="py-2">Descripción</th>
-                                <th class="py-2">Cant.</th>
-                                <th class="py-2">P. unit.</th>
-                                <th class="py-2">Desc.</th>
-                                <th class="py-2 text-right">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="part in parts" :key="part.id" class="border-t">
-                                <td class="py-2">{{ part.description }}</td>
-                                <td class="py-2">{{ part.quantity }}</td>
-                                <td class="py-2">${{ Number(part.unit_price).toFixed(2) }}</td>
-                                <td class="py-2">${{ Number(part.discount).toFixed(2) }}</td>
-                                <td class="py-2 text-right">${{ Number(part.line_total).toFixed(2) }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
+            <template #attachments>
+                <v-list v-if="attachments.length" lines="two" class="bg-transparent mb-4">
+                    <v-list-item
+                        v-for="file in attachments"
+                        :key="file.id"
+                        :title="file.original_name"
+                        :subtitle="file.mime_type"
+                    >
+                        <template #append>
+                            <span class="text-caption text-medium-emphasis">
+                                {{ file.uploaded_by?.name }}
+                            </span>
+                        </template>
+                    </v-list-item>
+                </v-list>
+                <EmptyState
+                    v-else
+                    title="Sin evidencias"
+                    message="Aún no se han cargado archivos para esta orden."
+                    icon="mdi-paperclip"
+                    class="mb-4"
+                />
 
-                    <form v-if="can.addItems" class="grid grid-cols-1 md:grid-cols-6 gap-3 border-t pt-4" @submit.prevent="submitPart">
-                        <div class="md:col-span-2">
-                            <InputLabel value="Catálogo" />
-                            <select
-                                v-model="partForm.part_catalog_id"
-                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                                @change="onPartSelect"
-                            >
-                                <option value="">Manual…</option>
-                                <option v-for="part in partsCatalog" :key="part.id" :value="String(part.id)">
-                                    {{ part.code }} — {{ part.description }}
-                                </option>
-                            </select>
-                        </div>
-                        <div class="md:col-span-2">
-                            <InputLabel value="Descripción" />
-                            <TextInput v-model="partForm.description" class="mt-1 block w-full" />
-                        </div>
-                        <div>
-                            <InputLabel value="Cant." />
-                            <TextInput v-model="partForm.quantity" type="number" step="0.01" class="mt-1 block w-full" />
-                        </div>
-                        <div>
-                            <InputLabel value="P. unit." />
-                            <TextInput v-model="partForm.unit_price" type="number" step="0.01" class="mt-1 block w-full" />
-                        </div>
-                        <div class="md:col-span-6">
-                            <PrimaryButton :disabled="partForm.processing">Agregar refacción</PrimaryButton>
-                        </div>
-                    </form>
-                </div>
+                <v-form v-if="can.attach" @submit.prevent="submitAttachment">
+                    <v-file-input
+                        :key="fileInputKey"
+                        label="Archivo de evidencia"
+                        prepend-icon=""
+                        prepend-inner-icon="mdi-paperclip"
+                        show-size
+                        class="mb-3"
+                        :error-messages="attachmentForm.errors.file"
+                        @update:model-value="(files) => {
+                            const value = Array.isArray(files) ? files[0] : files;
+                            attachmentForm.file = value ?? null;
+                        }"
+                    />
+                    <v-btn
+                        type="submit"
+                        color="primary"
+                        variant="flat"
+                        :loading="attachmentForm.processing"
+                        :disabled="!attachmentForm.file"
+                    >
+                        Subir evidencia
+                    </v-btn>
+                </v-form>
+            </template>
+        </TabsCard>
 
-                <!-- Attachments -->
-                <div class="bg-white shadow sm:rounded-lg p-6 space-y-4">
-                    <h3 class="font-semibold text-lg">Evidencias</h3>
-                    <ul class="space-y-2 text-sm">
-                        <li v-for="file in attachments" :key="file.id" class="flex justify-between border-b pb-2">
-                            <span>{{ file.original_name }} <span class="text-gray-400">({{ file.mime_type }})</span></span>
-                            <span class="text-gray-500">{{ file.uploaded_by?.name }}</span>
-                        </li>
-                        <li v-if="!attachments.length" class="text-gray-500">Sin evidencias.</li>
-                    </ul>
-                    <form v-if="can.attach" class="space-y-3" @submit.prevent="submitAttachment">
-                        <input :key="fileInputKey" type="file" @change="onFileChange">
-                        <InputError :message="attachmentForm.errors.file" />
-                        <PrimaryButton :disabled="attachmentForm.processing || !attachmentForm.file">
-                            Subir evidencia
-                        </PrimaryButton>
-                    </form>
-                </div>
-            </div>
-        </div>
+        <ConfirmDialog
+            v-model="confirmReopen"
+            title="Reabrir orden"
+            message="La orden volverá a estado En progreso. ¿Continuar?"
+            confirm-text="Reabrir"
+            confirm-color="warning"
+            :loading="reopenForm.processing"
+            @confirm="submitReopen"
+        />
     </AppLayout>
 </template>

@@ -1,20 +1,53 @@
-<script setup>
-import { useForm } from '@inertiajs/vue3';
+<script setup lang="ts">
+import { router, useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import FormSection from '@/Components/FormSection.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
-import Checkbox from '@/Components/Checkbox.vue';
+import FormActions from '@/Components/Ui/FormActions.vue';
+import FormSection from '@/Components/Ui/FormSection.vue';
+import PageHeader from '@/Components/Ui/PageHeader.vue';
+import PanelCard from '@/Components/Ui/PanelCard.vue';
 
-const props = defineProps({
-    customer: Object,
-    types: Array,
-    statuses: Array,
-});
+interface SelectOption {
+    value: string;
+    label: string;
+}
+
+interface FiscalProfileForm {
+    id: number | null;
+    legal_name: string;
+    rfc: string;
+    tax_regime_code: string;
+    cfdi_use_code: string;
+    postal_code: string;
+    email: string;
+    is_default: boolean;
+}
+
+interface CustomerProp {
+    id: number;
+    type: string;
+    name: string;
+    trade_name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    status: string;
+    fiscal_profiles?: Array<{
+        id: number;
+        legal_name: string;
+        rfc: string;
+        tax_regime_code: string;
+        cfdi_use_code: string;
+        postal_code: string;
+        email?: string | null;
+        is_default: boolean;
+    }>;
+}
+
+const props = defineProps<{
+    customer: CustomerProp;
+    types: SelectOption[];
+    statuses: SelectOption[];
+}>();
 
 const form = useForm({
     type: props.customer.type,
@@ -32,12 +65,20 @@ const form = useForm({
         postal_code: profile.postal_code,
         email: profile.email ?? '',
         is_default: profile.is_default,
-    })),
+    })) as FiscalProfileForm[],
 });
 
 const isCompany = computed(() => form.type === 'company');
 
-const addFiscalProfile = () => {
+const typeItems = computed(() =>
+    props.types.map((option) => ({ value: option.value, title: option.label })),
+);
+
+const statusItems = computed(() =>
+    props.statuses.map((option) => ({ value: option.value, title: option.label })),
+);
+
+function addFiscalProfile(): void {
     form.fiscal_profiles.push({
         id: null,
         legal_name: '',
@@ -48,168 +89,194 @@ const addFiscalProfile = () => {
         email: '',
         is_default: form.fiscal_profiles.length === 0,
     });
-};
+}
 
-const removeFiscalProfile = (index) => {
+function removeFiscalProfile(index: number): void {
     form.fiscal_profiles.splice(index, 1);
     if (form.fiscal_profiles.length > 0 && !form.fiscal_profiles.some((p) => p.is_default)) {
         form.fiscal_profiles[0].is_default = true;
     }
-};
+}
 
-const setDefaultProfile = (index) => {
+function setDefaultProfile(index: number): void {
     form.fiscal_profiles.forEach((profile, i) => {
         profile.is_default = i === index;
     });
-};
+}
 
-const submit = () => {
+function submit(): void {
     form.put(route('customers.update', props.customer.id));
-};
+}
 </script>
 
 <template>
     <AppLayout title="Editar cliente">
-        <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Editar cliente
-            </h2>
-        </template>
+        <PageHeader
+            title="Editar cliente"
+            :subtitle="customer.name"
+            :breadcrumbs="[
+                { title: 'Clientes', href: route('customers.index') },
+                { title: customer.name, href: route('customers.show', customer.id) },
+                { title: 'Editar', disabled: true },
+            ]"
+        />
 
-        <div>
-            <div class="max-w-7xl mx-auto py-10 sm:px-6 lg:px-8 space-y-6">
-                <FormSection @submitted="submit">
-                    <template #title>
-                        Datos generales
-                    </template>
-
-                    <template #description>
-                        Actualiza datos del cliente y su estatus. El historial se conserva.
-                    </template>
-
-                    <template #form>
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="type" value="Tipo" />
-                            <select
-                                id="type"
+        <div class="d-flex flex-column ga-6">
+            <FormSection
+                title="Datos generales"
+                description="Actualiza datos del cliente y su estatus. El historial se conserva."
+                @submitted="submit"
+            >
+                <template #form>
+                    <v-row>
+                        <v-col cols="12" md="6">
+                            <v-select
                                 v-model="form.type"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
-                            >
-                                <option v-for="option in types" :key="option.value" :value="option.value">
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                            <InputError :message="form.errors.type" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="name" :value="isCompany ? 'Razón social' : 'Nombre completo'" />
-                            <TextInput id="name" v-model="form.name" type="text" class="mt-1 block w-full" required autofocus />
-                            <InputError :message="form.errors.name" class="mt-2" />
-                        </div>
-
-                        <div v-if="isCompany" class="col-span-6 sm:col-span-4">
-                            <InputLabel for="trade_name" value="Nombre comercial" />
-                            <TextInput id="trade_name" v-model="form.trade_name" type="text" class="mt-1 block w-full" />
-                            <InputError :message="form.errors.trade_name" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="phone" value="Teléfono" />
-                            <TextInput id="phone" v-model="form.phone" type="text" class="mt-1 block w-full" />
-                            <InputError :message="form.errors.phone" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="email" value="Email" />
-                            <TextInput id="email" v-model="form.email" type="email" class="mt-1 block w-full" />
-                            <InputError :message="form.errors.email" class="mt-2" />
-                        </div>
-
-                        <div class="col-span-6 sm:col-span-4">
-                            <InputLabel for="status" value="Estatus" />
-                            <select
-                                id="status"
+                                :items="typeItems"
+                                label="Tipo"
+                                :error-messages="form.errors.type"
+                            />
+                        </v-col>
+                        <v-col cols="12" md="6">
+                            <v-text-field
+                                v-model="form.name"
+                                :label="isCompany ? 'Razón social' : 'Nombre completo'"
+                                required
+                                autofocus
+                                :error-messages="form.errors.name"
+                            />
+                        </v-col>
+                        <v-col v-if="isCompany" cols="12" md="6">
+                            <v-text-field
+                                v-model="form.trade_name"
+                                label="Nombre comercial"
+                                :error-messages="form.errors.trade_name"
+                            />
+                        </v-col>
+                        <v-col cols="12" md="6">
+                            <v-text-field
+                                v-model="form.phone"
+                                label="Teléfono"
+                                :error-messages="form.errors.phone"
+                            />
+                        </v-col>
+                        <v-col cols="12" md="6">
+                            <v-text-field
+                                v-model="form.email"
+                                type="email"
+                                label="Email"
+                                :error-messages="form.errors.email"
+                            />
+                        </v-col>
+                        <v-col cols="12" md="6">
+                            <v-select
                                 v-model="form.status"
-                                class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
+                                :items="statusItems"
+                                label="Estatus"
+                                :error-messages="form.errors.status"
+                            />
+                        </v-col>
+                    </v-row>
+                </template>
+                <template #actions>
+                    <FormActions
+                        :processing="form.processing"
+                        save-text="Actualizar"
+                        @cancel="router.visit(route('customers.show', customer.id))"
+                    />
+                </template>
+            </FormSection>
+
+            <PanelCard
+                title="Perfiles fiscales"
+                subtitle="Uno debe marcarse como predeterminado (RN-CLI-003)."
+            >
+                <template #actions>
+                    <v-btn variant="tonal" prepend-icon="mdi-plus" @click="addFiscalProfile">
+                        Agregar perfil
+                    </v-btn>
+                </template>
+
+                <div
+                    v-for="(profile, index) in form.fiscal_profiles"
+                    :key="profile.id ?? `new-${index}`"
+                    class="mb-4"
+                >
+                    <v-card variant="outlined" class="pa-4">
+                        <div class="d-flex align-center justify-space-between mb-3">
+                            <h4 class="text-subtitle-1 font-weight-medium mb-0">
+                                Perfil {{ index + 1 }}
+                            </h4>
+                            <v-btn
+                                variant="text"
+                                color="error"
+                                size="small"
+                                @click="removeFiscalProfile(index)"
                             >
-                                <option v-for="option in statuses" :key="option.value" :value="option.value">
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                            <InputError :message="form.errors.status" class="mt-2" />
-                        </div>
-                    </template>
-
-                    <template #actions>
-                        <PrimaryButton :class="{ 'opacity-25': form.processing }" :disabled="form.processing">
-                            Actualizar
-                        </PrimaryButton>
-                    </template>
-                </FormSection>
-
-                <div class="bg-white shadow sm:rounded-lg p-6 space-y-4">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="text-lg font-medium text-gray-900">Perfiles fiscales</h3>
-                            <p class="text-sm text-gray-600">Uno debe marcarse como predeterminado (RN-CLI-003).</p>
-                        </div>
-                        <SecondaryButton type="button" @click="addFiscalProfile">
-                            Agregar perfil
-                        </SecondaryButton>
-                    </div>
-
-                    <div
-                        v-for="(profile, index) in form.fiscal_profiles"
-                        :key="profile.id ?? `new-${index}`"
-                        class="border border-gray-200 rounded-lg p-4 space-y-4"
-                    >
-                        <div class="flex items-center justify-between">
-                            <h4 class="font-medium text-gray-800">Perfil {{ index + 1 }}</h4>
-                            <button type="button" class="text-sm text-red-600 hover:text-red-800" @click="removeFiscalProfile(index)">
                                 Eliminar
-                            </button>
+                            </v-btn>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <InputLabel :for="`legal_name_${index}`" value="Razón social / Nombre fiscal" />
-                                <TextInput :id="`legal_name_${index}`" v-model="profile.legal_name" type="text" class="mt-1 block w-full" />
-                                <InputError :message="form.errors[`fiscal_profiles.${index}.legal_name`]" class="mt-2" />
-                            </div>
-                            <div>
-                                <InputLabel :for="`rfc_${index}`" value="RFC" />
-                                <TextInput :id="`rfc_${index}`" v-model="profile.rfc" type="text" class="mt-1 block w-full uppercase" maxlength="13" />
-                                <InputError :message="form.errors[`fiscal_profiles.${index}.rfc`]" class="mt-2" />
-                            </div>
-                            <div>
-                                <InputLabel :for="`tax_regime_${index}`" value="Régimen fiscal" />
-                                <TextInput :id="`tax_regime_${index}`" v-model="profile.tax_regime_code" type="text" class="mt-1 block w-full" />
-                            </div>
-                            <div>
-                                <InputLabel :for="`cfdi_use_${index}`" value="Uso CFDI" />
-                                <TextInput :id="`cfdi_use_${index}`" v-model="profile.cfdi_use_code" type="text" class="mt-1 block w-full" />
-                            </div>
-                            <div>
-                                <InputLabel :for="`postal_${index}`" value="Código postal" />
-                                <TextInput :id="`postal_${index}`" v-model="profile.postal_code" type="text" class="mt-1 block w-full" />
-                            </div>
-                            <div>
-                                <InputLabel :for="`fiscal_email_${index}`" value="Email fiscal" />
-                                <TextInput :id="`fiscal_email_${index}`" v-model="profile.email" type="email" class="mt-1 block w-full" />
-                            </div>
-                            <div class="flex items-center">
-                                <Checkbox
-                                    :id="`is_default_${index}`"
-                                    :checked="profile.is_default"
-                                    @update:checked="(checked) => checked && setDefaultProfile(index)"
+                        <v-row>
+                            <v-col cols="12" md="6">
+                                <v-text-field
+                                    v-model="profile.legal_name"
+                                    label="Razón social / Nombre fiscal"
+                                    :error-messages="form.errors[`fiscal_profiles.${index}.legal_name`]"
                                 />
-                                <InputLabel :for="`is_default_${index}`" value="Predeterminado" class="ms-2" />
-                            </div>
-                        </div>
-                    </div>
-                    <InputError :message="form.errors.fiscal_profiles" class="mt-2" />
+                            </v-col>
+                            <v-col cols="12" md="6">
+                                <v-text-field
+                                    v-model="profile.rfc"
+                                    label="RFC"
+                                    maxlength="13"
+                                    class="text-uppercase"
+                                    :error-messages="form.errors[`fiscal_profiles.${index}.rfc`]"
+                                />
+                            </v-col>
+                            <v-col cols="12" md="6">
+                                <v-text-field
+                                    v-model="profile.tax_regime_code"
+                                    label="Régimen fiscal"
+                                />
+                            </v-col>
+                            <v-col cols="12" md="6">
+                                <v-text-field
+                                    v-model="profile.cfdi_use_code"
+                                    label="Uso CFDI"
+                                />
+                            </v-col>
+                            <v-col cols="12" md="6">
+                                <v-text-field
+                                    v-model="profile.postal_code"
+                                    label="Código postal"
+                                />
+                            </v-col>
+                            <v-col cols="12" md="6">
+                                <v-text-field
+                                    v-model="profile.email"
+                                    type="email"
+                                    label="Email fiscal"
+                                />
+                            </v-col>
+                            <v-col cols="12">
+                                <v-checkbox
+                                    :model-value="profile.is_default"
+                                    label="Predeterminado"
+                                    hide-details
+                                    @update:model-value="(checked) => checked && setDefaultProfile(index)"
+                                />
+                            </v-col>
+                        </v-row>
+                    </v-card>
                 </div>
-            </div>
+                <v-alert
+                    v-if="form.errors.fiscal_profiles"
+                    type="error"
+                    variant="tonal"
+                >
+                    {{ form.errors.fiscal_profiles }}
+                </v-alert>
+            </PanelCard>
         </div>
     </AppLayout>
 </template>
